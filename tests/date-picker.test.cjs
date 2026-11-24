@@ -137,3 +137,47 @@ test('room calendar opens directly with quick ranges and retains Apply and draft
 test('room quick ranges work across a month boundary without a separate selection menu',t=>{
   const {picker,changes}=setup(t,{chatMode:true});picker.today=()=> '2026-03-01';picker.render();picker.element.querySelector('[data-preset="Last 7 days"]').click();picker.element.querySelector('.calendar-apply').click();assert.deepEqual(changes.at(-1).dates,{from:'2026-02-23',to:'2026-03-01'});
 });
+
+function phoneSetup(t,options={}){
+  const dom=new JSDOM('<!doctype html><body></body>',{runScripts:'outside-only',pretendToBeVisual:true});t.after(()=>dom.window.close());const W=dom.window;
+  W.matchMedia=query=>({matches:/max-width/.test(query),media:query,addEventListener(){},removeEventListener(){}});
+  for(const name of ['search-core.js','date-picker.js'])W.eval(readFileSync(join(__dirname,'../extension',name),'utf8'));
+  const changes=[],closed=[];const picker=new W.RCSDatePicker({...options,onClose:()=>closed.push(1),onChange:(dates,label)=>changes.push({dates:JSON.parse(JSON.stringify(dates)),label})});picker.today=()=>options.today||'2026-10-29';
+  W.document.body.append(picker.element);picker.show();
+  return {W,picker,changes,closed,el:picker.element};
+}
+test('on phones the calendar is a pull-up sheet with every mode, quick ranges and scrolling months',t=>{
+  const {W,el}=phoneSetup(t);
+  assert.ok(el.classList.contains('date-sheet'));assert.equal(el.getAttribute('aria-modal'),'true');
+  assert.ok(W.document.querySelector('.date-sheet-scrim'),'a backdrop');
+  assert.equal(el.querySelector('.date-sheet-title').textContent,'Date');
+  assert.deepEqual([...el.querySelectorAll('.date-mode')].map(b=>b.textContent),['On','Before','After','Between'],'no mode is lost');
+  assert.ok(el.querySelectorAll('.calendar-preset').length>=4,'quick ranges');
+  assert.equal(el.querySelectorAll('.calendar-weekdays').length,1,'one weekday row above all months');
+  const months=[...el.querySelectorAll('.calendar-month-block')].map(b=>b.dataset.month);
+  assert.ok(months.length>=4);assert.equal(months.at(-1),'2026-10','ends at the current month');assert.ok(months.includes('2026-07'));
+  assert.equal(el.querySelector('.calendar-nav'),null,'scrolling replaces the arrows');
+  assert.match(W.document.querySelector('style')?.textContent || globalThis.String(W.RCSDatePicker.styles),/\.date-popover\.date-sheet\{position:fixed/);
+  assert.match(W.RCSDatePicker.styles,/--calendar-cell:44px/,'44 px touch targets');
+});
+test('a phone range is picked across months and applied from the sticky footer',t=>{
+  const {el,changes,closed}=phoneSetup(t);
+  el.querySelector('[data-date="2026-09-28"]').click();
+  el.querySelector('[data-date="2026-10-03"]').click();
+  assert.ok(el.querySelector('[data-date="2026-09-30"]').classList.contains('range'),'the range spans the months');
+  assert.match(el.querySelector('.calendar-summary').textContent,/→/);
+  el.querySelector('.calendar-apply').click();
+  assert.deepEqual(changes.at(-1).dates,{from:'2026-09-28',to:'2026-10-03'});assert.equal(closed.length,1);
+});
+test('a phone month title jumps to any year and month, and the backdrop closes without applying',t=>{
+  const {W,el,changes,closed}=phoneSetup(t);
+  el.querySelector('.calendar-month-title').click();
+  assert.equal(el.querySelector('.date-sheet-title').textContent,'Choose year');
+  el.querySelector('[data-year="2019"]').click();
+  assert.equal(el.querySelector('.date-sheet-title').textContent,'Choose month');
+  el.querySelector('[data-month="2"]').click();
+  assert.ok(el.querySelector('[data-month="2019-03"]'),'March 2019 is listed');
+  assert.ok(el.querySelector('[data-date="2019-03-15"]'));
+  W.document.querySelector('.date-sheet-scrim').click();
+  assert.equal(closed.length,1);assert.equal(changes.length,0,'nothing applied');assert.equal(W.document.querySelector('.date-sheet-scrim'),null);
+});

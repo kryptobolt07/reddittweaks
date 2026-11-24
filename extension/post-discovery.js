@@ -2202,6 +2202,9 @@
       if(button.getAttribute('aria-label')!==MENU_LABEL)button.setAttribute('aria-label',MENU_LABEL);
       const walker=document.createTreeWalker(button,NodeFilter.SHOW_TEXT);
       for(let node=walker.nextNode();node;node=walker.nextNode())if(node.nodeValue.includes('Feed options'))node.nodeValue=node.nodeValue.replace('Feed options',MENU_LABEL);
+      // Reddit's menu heading too, so the menu reads the same as its button (docs/feed-controls-ux-plan.md, 1).
+      for(const heading of dropdown.querySelectorAll('[slot="dropdown-items"] *:not(rpl-menu-item),rpl-menu > :not(rpl-menu-item)'))
+        for(const node of heading.childNodes)if(node.nodeType===3 && node.nodeValue.trim()==='Feed options')node.nodeValue=node.nodeValue.replace('Feed options',MENU_LABEL);
     }
     placeFilterChips(){
       this.relabelTrigger();

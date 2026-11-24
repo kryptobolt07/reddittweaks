@@ -7,7 +7,7 @@
   const shift=(value,days)=>{const result=parse(value);if(!result)return '';result.setDate(result.getDate()+days);return result.getFullYear()>=1&&result.getFullYear()<=9999?iso(result):'';};
   const frame=callback=>typeof requestAnimationFrame==='function'?requestAnimationFrame(callback):setTimeout(callback,0);
   const cancelFrame=id=>typeof cancelAnimationFrame==='function'?cancelAnimationFrame(id):clearTimeout(id);
-  const glyph=name=>{const node=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [key,value]of Object.entries({viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','stroke-width':'2','stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true',focusable:'false'}))node.setAttribute(key,value);const paths={prev:'m15 6-6 6 6 6',next:'m9 6 6 6-6 6',caret:'m6 9 6 6 6-6'},d=paths[name];if(d){const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d',d);node.append(path);}return node;};
+  const glyph=name=>{const node=document.createElementNS('http://www.w3.org/2000/svg','svg');for(const [key,value]of Object.entries({viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','stroke-width':'2','stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true',focusable:'false'}))node.setAttribute(key,value);const paths={prev:'m15 6-6 6 6 6',next:'m9 6 6 6-6 6',caret:'m6 9 6 6 6-6',close:'M6 6l12 12M18 6 6 18'},d=paths[name];if(d){const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d',d);node.append(path);}return node;};
   const modes=['On','Before','After','Between'];
   const weekdays=['Su','Mo','Tu','We','Th','Fr','Sa'];
   let pickerCount=0;
@@ -95,16 +95,21 @@
       const room=strip.scrollWidth-strip.clientWidth,left=strip.scrollLeft;
       strip.dataset.fade=room<=1?'none':left<=1?'end':left>=room-1?'start':'both';
     }
-    chooseRange(range){if(!this.selectable(range.start)||!this.selectable(range.end)||range.end<range.start)return;const single=range.start===range.end;this.draft={mode:single?'On':'Between',start:range.start,end:single?'':range.end};const start=parse(range.start);this.view=validDate(start.getFullYear(),start.getMonth()+1,1);this.chooser='';this.render();this.element.querySelector(`[data-preset="${range.label}"]`)?.focus({preventScroll:true});}
+    chooseRange(range){if(!this.selectable(range.start)||!this.selectable(range.end)||range.end<range.start)return;this.sheetJump=true;const single=range.start===range.end;this.draft={mode:single?'On':'Between',start:range.start,end:single?'':range.end};const start=parse(range.start);this.view=validDate(start.getFullYear(),start.getMonth()+1,1);this.chooser='';this.render();this.element.querySelector(`[data-preset="${range.label}"]`)?.focus({preventScroll:true});}
     setMode(mode){this.chooser='';this.draft={...this.draft,mode,end:''};this.render();this.element.querySelector(`[data-mode="${mode}"]`)?.focus({preventScroll:true});}
     get open(){return !this.element.hidden;}
+    // Phones (Reddit's layout below 768 px): a pull-up sheet with months to scroll through and touch-sized days.
+    sheetLayout(){return Boolean(globalThis.matchMedia?.('(max-width: 767.98px)')?.matches);}
     show(mode='') {
+      this.sheet=this.sheetLayout();this.element.classList.toggle('date-sheet',this.sheet);this.sheetFirst=null;this.sheetLast=null;this.sheetJump=true;
+      if(this.sheet && !this.scrim?.isConnected){this.scrim=make('div','date-sheet-scrim');this.scrim.setAttribute('aria-hidden','true');this.scrim.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();this.close();});this.element.before(this.scrim);}
+      this.element.setAttribute('aria-modal',String(this.sheet));
       this.chooser='';this.draft=mode?{mode,start:'',end:''}:{...this.applied};const day=parse(this.draft.start)||parse(this.today())||new Date();this.view=validDate(day.getFullYear(),day.getMonth()+1,1);
       this.element.hidden=false;this.detectScheme();this.render();{const strip=this.element.querySelector('.calendar-presets'),pressed=strip?.querySelector('[aria-pressed=true]');if(pressed)this.revealPreset(strip,pressed);}this.element.scrollTop=0;this.startPosition();const focus=this.element.querySelector('[data-date].selected')||this.element.querySelector('[data-date].today')||this.element.querySelector('[data-date]');if(focus)this.focusDay(focus.dataset.date);
     }
     // Reddit's theme is not always the OS scheme: sample the resolved surface colour to pick border and shadow strength.
     detectScheme(){const match=/^rgba?\(\s*([\d.]+)[ ,]+([\d.]+)[ ,]+([\d.]+)/.exec(getComputedStyle(this.element).backgroundColor||'');if(match)this.element.dataset.scheme=(0.2126*match[1]+0.7152*match[2]+0.0722*match[3])/255<0.45?'dark':'light';}
-    close(restoreFocus=true){this.stopPosition();this.element.hidden=true;this.onClose?.(restoreFocus);}
+    close(restoreFocus=true){this.stopPosition();this.element.hidden=true;this.scrim?.remove();this.scrim=null;this.onClose?.(restoreFocus);}
     reset(){this.chooser='';this.applied={mode:this.chatMode?'On':'Between',start:'',end:''};this.draft={...this.applied};this.onChange?.({from:'',to:''},'');this.render();}
     focusDay(value){const next=this.element.querySelector(`[data-date="${value}"]`);if(!next)return;for(const day of this.element.querySelectorAll('[data-date]'))day.tabIndex=-1;next.tabIndex=0;next.focus({preventScroll:true});}
     focusOption(option){if(!option)return;option.focus({preventScroll:true});const list=option.parentElement;if(list&&list.clientHeight)list.scrollTop=Math.max(0,option.offsetTop-(list.clientHeight-option.offsetHeight)/2);}
@@ -153,7 +158,7 @@
     }
     clip(){const viewport=window.visualViewport,bounds={left:viewport?.offsetLeft||0,top:viewport?.offsetTop||0,right:(viewport?.offsetLeft||0)+(viewport?.width||window.innerWidth),bottom:(viewport?.offsetTop||0)+(viewport?.height||window.innerHeight)};const supplied=this.getBounds?.();if(supplied)for(const key of ['left','top','right','bottom'])if(Number.isFinite(supplied[key]))bounds[key]=key==='left'||key==='top'?Math.max(bounds[key],supplied[key]):Math.min(bounds[key],supplied[key]);return bounds;}
     // offsetWidth/Height round to integers; computed sizes also preserve native zoom.
-    place(){if(!this.open||!this.element.isConnected)return;const root=this.element;root.style.top='';root.style.left='';root.style.right='';root.style.maxWidth='';const bounds=this.clip(),initial=root.getBoundingClientRect(),style=getComputedStyle(root),sx=initial.width/(parseFloat(style.width)||root.offsetWidth)||1,sy=initial.height/(parseFloat(style.height)||root.offsetHeight)||1;root.style.maxWidth=Math.max(0,(bounds.right-bounds.left-12)/sx)+'px';const anchor=this.getAnchor?.(),top=Math.max(Number.isFinite(anchor?.bottom)?anchor.bottom+4:initial.top,bounds.top+4),base=parseFloat(getComputedStyle(root).top)||root.offsetTop;root.style.top=base+(top-initial.top)/sy+'px';root.style.maxHeight=Math.max(0,(bounds.bottom-top-6)/sy)+'px';const rect=root.getBoundingClientRect(),anchorRight=Number.isFinite(anchor?.right)?anchor.right:Number.isFinite(anchor?.left)?anchor.left+rect.width:rect.right,left=Math.max(bounds.left+6,Math.min(anchorRight-rect.width,bounds.right-rect.width-6));if(left!==rect.left){root.style.left=root.offsetLeft+(left-rect.left)/sx+'px';root.style.right='auto';}}
+    place(){if(!this.open||!this.element.isConnected)return;if(this.sheet){for(const key of ['top','left','right','maxWidth'])this.element.style[key]='';return;}const root=this.element;root.style.top='';root.style.left='';root.style.right='';root.style.maxWidth='';const bounds=this.clip(),initial=root.getBoundingClientRect(),style=getComputedStyle(root),sx=initial.width/(parseFloat(style.width)||root.offsetWidth)||1,sy=initial.height/(parseFloat(style.height)||root.offsetHeight)||1;root.style.maxWidth=Math.max(0,(bounds.right-bounds.left-12)/sx)+'px';const anchor=this.getAnchor?.(),top=Math.max(Number.isFinite(anchor?.bottom)?anchor.bottom+4:initial.top,bounds.top+4),base=parseFloat(getComputedStyle(root).top)||root.offsetTop;root.style.top=base+(top-initial.top)/sy+'px';root.style.maxHeight=Math.max(0,(bounds.bottom-top-6)/sy)+'px';const rect=root.getBoundingClientRect(),anchorRight=Number.isFinite(anchor?.right)?anchor.right:Number.isFinite(anchor?.left)?anchor.left+rect.width:rect.right,left=Math.max(bounds.left+6,Math.min(anchorRight-rect.width,bounds.right-rect.width-6));if(left!==rect.left){root.style.left=root.offsetLeft+(left-rect.left)/sx+'px';root.style.right='auto';}}
     queuePosition(){if(!this.open||this.positionFrame)return;this.positionFrame=frame(()=>{this.positionFrame=0;this.place();});}
     startPosition(){this.stopPosition();this.positionListener=event=>{if(!(event?.target instanceof Node)||!this.element.contains(event.target))this.queuePosition();};window.addEventListener('resize',this.positionListener);window.addEventListener('scroll',this.positionListener,true);this.visual=window.visualViewport;this.visual?.addEventListener('resize',this.positionListener);this.visual?.addEventListener('scroll',this.positionListener);this.place();}
     stopPosition(){if(this.positionListener){window.removeEventListener('resize',this.positionListener);window.removeEventListener('scroll',this.positionListener,true);this.visual?.removeEventListener('resize',this.positionListener);this.visual?.removeEventListener('scroll',this.positionListener);}if(this.positionFrame)cancelFrame(this.positionFrame);this.positionFrame=0;this.positionListener=null;this.visual=null;}
@@ -190,18 +195,17 @@
       for(const value of values) {
         const long=kind==='month'?new Date(2020,value,1).toLocaleDateString(undefined,{month:'long'}):String(value),option=make('button','calendar-option',kind==='month'?new Date(2020,value,1).toLocaleDateString(undefined,{month:'short'}):String(value));option.type='button';option.dataset[kind]=String(value);
         option.setAttribute('aria-label',long);option.setAttribute('aria-pressed',String(value===(kind==='month'?this.view.getMonth():this.view.getFullYear())));
-        option.addEventListener('click',()=>{this.view=validDate(kind==='year'?value:this.view.getFullYear(),(kind==='month'?value:this.view.getMonth())+1,1);this.chooser='';this.render();this.element.querySelector(`.calendar-${kind}`)?.focus({preventScroll:true});});choices.append(option);
+        option.addEventListener('click',()=>{this.view=validDate(kind==='year'?value:this.view.getFullYear(),(kind==='month'?value:this.view.getMonth())+1,1);this.sheetJump=true;if(this.sheet && kind==='year'){this.chooser='month';this.render();this.focusOption(this.element.querySelector('.calendar-option[aria-pressed=true]'));return;}this.chooser='';this.render();this.element.querySelector(`.calendar-${kind}`)?.focus({preventScroll:true});});choices.append(option);
       }
       return choices;
     }
-    calendar() {
-      const grid=make('div','calendar-grid'),view=this.view,first=validDate(view.getFullYear(),view.getMonth()+1,1),today=this.today(),availability=this.availability(),draft=this.draft;
+    calendar(view=this.view,{weekdays:showWeekdays=true}={}) {
+      const grid=make('div','calendar-grid'),first=validDate(view.getFullYear(),view.getMonth()+1,1),today=this.today(),availability=this.availability(),draft=this.draft;
       // While choosing a range's end, the days up to the hovered one preview as the same faded boxes.
       grid.addEventListener('pointerover',event=>{const day=event.target instanceof Element?event.target.closest('.calendar-day[data-date]'):null;if(day)this.previewTo(grid,day.dataset.date);});
       grid.addEventListener('pointerleave',()=>this.previewTo(grid,''));
       grid.setAttribute('role','grid');grid.setAttribute('aria-label',view.toLocaleDateString(undefined,{month:'long',year:'numeric'}));
-      const head=make('div','calendar-weekdays');head.setAttribute('role','row');
-      weekdays.forEach((label,index)=>{const cell=make('span','');cell.setAttribute('role','columnheader');cell.setAttribute('aria-label',new Date(2023,0,1+index).toLocaleDateString(undefined,{weekday:'long'}));cell.append(make('span','wd-long',label),make('span','wd-short',label[0]));head.append(cell);});grid.append(head);
+      if(showWeekdays)grid.append(this.weekdayRow());
       const last=new Date(first);last.setMonth(last.getMonth()+1,0);const count=last.getDate(),ranged=draft.mode==='Between'&&Boolean(draft.end)&&draft.end>draft.start;let week=null;
       for(let day=1;day<=count;day++) {
         const date=validDate(view.getFullYear(),view.getMonth()+1,day),value=iso(date),column=(first.getDay()+day-1)%7;
@@ -219,12 +223,62 @@
       (grid.querySelector('.selected:not([aria-disabled=true])')||grid.querySelector('.today:not([aria-disabled=true])')||grid.querySelector('[data-date]:not([aria-disabled=true])')||grid.querySelector('[data-date]'))?.setAttribute('tabindex','0');
       return grid;
     }
+    weekdayRow(){
+      const head=make('div','calendar-weekdays');head.setAttribute('role','row');
+      weekdays.forEach((label,index)=>{const cell=make('span','');cell.setAttribute('role','columnheader');cell.setAttribute('aria-label',new Date(2023,0,1+index).toLocaleDateString(undefined,{weekday:'long'}));cell.append(make('span','wd-long',label),make('span','wd-short',label[0]));head.append(cell);});
+      return head;
+    }
     footer() {
       const footer=make('div','calendar-footer'),status=make('div',this.chatMode?'calendar-summary calendar-instruction':'calendar-summary',this.instruction());status.setAttribute('aria-live','polite');status.setAttribute('aria-atomic','true');this.status=status;
       const actions=make('div','calendar-actions'),clear=make('button','calendar-clear',this.applied.start?'Clear filter':'Clear'),apply=make('button','calendar-apply','Apply');clear.type=apply.type='button';
       clear.addEventListener('click',()=>this.reset());apply.disabled=!this.bounds();apply.addEventListener('click',()=>this.apply());actions.append(clear,apply);footer.append(status,actions);return footer;
     }
+    monthStart(value){return validDate(value.getFullYear(),value.getMonth()+1,1);}
+    addMonth(value,count){const next=new Date(value);next.setDate(1);next.setMonth(next.getMonth()+count);return this.monthStart(next);}
+    // The months the sheet lists: around the one in view, never past the available range; more load as you scroll.
+    sheetBounds(){
+      const {min,max}=this.availability(),latest=this.monthStart(parse(max)||new Date()),earliestDay=parse(min)||validDate(2005,6,1),earliest=this.monthStart(earliestDay);
+      return {earliest,latest};
+    }
+    ensureSheetMonths(){
+      const {earliest,latest}=this.sheetBounds(),view=this.monthStart(this.view);
+      const clamp=value=>value<earliest?earliest:value>latest?latest:value;
+      if(!this.sheetFirst || view<this.sheetFirst || view>this.sheetLast){this.sheetFirst=clamp(this.addMonth(view,-3));this.sheetLast=clamp(this.addMonth(view,3));if(this.sheetLast<latest && this.addMonth(this.sheetLast,3)>=latest)this.sheetLast=latest;}
+      this.sheetFirst=clamp(this.sheetFirst);this.sheetLast=clamp(this.sheetLast);
+    }
+    renderSheet(){
+      const root=this.element,old=root.querySelector('.calendar-months'),keep=old&&!this.sheetJump?{top:old.scrollTop,height:old.scrollHeight}:null,scrolled=root.querySelector('.calendar-presets')?.scrollLeft || 0;
+      this.notice='';root.replaceChildren();
+      const head=make('div','date-sheet-head'),handle=make('div','date-sheet-handle'),title=make('h2','date-sheet-title',this.chooser?`Choose ${this.chooser}`:'Date'),closer=make('button','date-sheet-close');
+      handle.setAttribute('aria-hidden','true');closer.type='button';closer.setAttribute('aria-label','Close');closer.append(glyph('close'));closer.addEventListener('click',()=>this.close());
+      if(this.chooser){const back=make('button','date-sheet-back');back.type='button';back.setAttribute('aria-label','Back to the calendar');back.append(glyph('prev'));back.addEventListener('click',()=>{this.chooser='';this.sheetJump=true;this.render();});head.append(handle,back,title,closer);}
+      else head.append(handle,title,closer);
+      root.append(head);
+      if(this.chooser){const body=make('div','calendar-body date-sheet-choices');body.append(this.choices());root.append(body,this.footer());return;}
+      const presets=this.presets();root.append(this.modeBar(),presets,this.weekdayRow());
+      this.ensureSheetMonths();
+      const list=make('div','calendar-months');list.setAttribute('aria-label','Months');
+      for(let month=this.sheetFirst;month<=this.sheetLast;month=this.addMonth(month,1)){
+        const block=make('section','calendar-month-block');block.dataset.month=iso(month).slice(0,7);
+        const label=make('button','calendar-month-title',month.toLocaleDateString(undefined,{month:'long',year:'numeric'}));label.type='button';label.setAttribute('aria-label',`${label.textContent}, choose another month or year`);
+        label.addEventListener('click',()=>{this.view=month;this.chooser='year';this.render();this.focusOption(this.element.querySelector('.calendar-option[aria-pressed=true]'));});
+        block.append(label,this.calendar(month,{weekdays:false}));list.append(block);
+      }
+      root.append(list,this.footer());
+      presets.scrollLeft=scrolled;this.syncPresetFade(presets);
+      // Keep the reader's place across a choice; after a jump (opening, a preset, a chosen month) show that month.
+      if(keep){list.scrollTop=keep.top+(this.sheetShift?list.scrollHeight-keep.height:0);}
+      else frame(()=>{const target=list.querySelector(`[data-month="${iso(this.monthStart(this.view)).slice(0,7)}"]`);if(target)list.scrollTop=Math.max(0,target.offsetTop-list.offsetTop-8);});
+      this.sheetShift=false;this.sheetJump=false;
+      // Older months load as the top comes near; newer ones (up to today) at the bottom.
+      list.addEventListener('scroll',()=>{
+        const {earliest,latest}=this.sheetBounds();
+        if(list.scrollTop<160 && this.sheetFirst>earliest){this.sheetFirst=this.addMonth(this.sheetFirst,-6);if(this.sheetFirst<earliest)this.sheetFirst=earliest;this.sheetShift=true;this.render();}
+        else if(list.scrollTop+list.clientHeight>list.scrollHeight-160 && this.sheetLast<latest){this.sheetLast=this.addMonth(this.sheetLast,6);if(this.sheetLast>latest)this.sheetLast=latest;this.render();}
+      },{passive:true});
+    }
     render() {
+      if(this.sheet){this.renderSheet();return;}
       const root=this.element,scrolled=root.querySelector('.calendar-presets')?.scrollLeft || 0;this.notice='';root.replaceChildren();
       const body=make('div','calendar-body');body.append(this.chooser?this.choices():this.calendar());
       const presets=this.presets();root.append(this.modeBar(),presets,this.heading(),body,this.footer());
@@ -258,6 +312,31 @@
     @media (pointer:coarse){.date-popover,:host([data-rcs-compact]) .date-popover{--calendar-cell:34px;--calendar-control:36px}.calendar-preset,:host([data-rcs-compact]) .calendar-preset{height:32px}}
     @container (max-width:231px){.calendar-weekdays .wd-long{display:none}.calendar-weekdays .wd-short{display:inline}.calendar-footer{flex-wrap:wrap}.calendar-summary{flex-basis:100%}.calendar-actions{margin-inline-start:auto}.calendar-month,.calendar-year{padding:0 3px;font-size:13px}}
     @media (prefers-reduced-motion:no-preference){.date-popover button,.calendar-day::before{transition:background-color .12s ease,color .12s ease,box-shadow .12s ease}}
+    /* Phones: a pull-up sheet (docs/date-picker-mobile-spec.md). Months scroll continuously under a fixed weekday row;
+       days are 44 px touch targets; Clear and a full-width Apply stay at the bottom. */
+    .date-sheet-scrim{position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,.6);pointer-events:auto}
+    .date-popover.date-sheet{position:fixed!important;left:0!important;right:0!important;top:auto!important;bottom:0!important;z-index:2147483001;width:100%!important;max-width:none!important;height:min(640px,88vh);height:min(640px,88dvh);max-height:none;display:flex;flex-direction:column;gap:8px;margin:0;padding:0 16px calc(12px + env(safe-area-inset-bottom,0px));border:0;border-radius:16px 16px 0 0;box-shadow:0 -2px 15px rgba(26,26,27,.3);pointer-events:auto;--calendar-cell:44px;--calendar-control:40px;--calendar-head:28px;font-size:15px;overflow:hidden}
+    .date-sheet .date-sheet-head{position:relative;display:flex;align-items:center;gap:8px;flex:none;min-height:52px;padding-top:14px}
+    .date-sheet .date-sheet-handle{position:absolute;top:6px;left:50%;width:36px;height:4px;margin-left:-18px;border-radius:2px;background:var(--rcs-line,#d0d7da)}
+    .date-sheet .date-sheet-title{flex:1;min-width:0;margin:0;color:var(--rcs-text);font-size:18px;font-weight:700;line-height:24px;text-transform:capitalize}
+    .date-sheet .date-sheet-close,.date-sheet .date-sheet-back{display:grid;place-items:center;flex:none;width:36px;height:36px;padding:0;border:0;border-radius:999px;background:var(--rcs-soft,#f2f4f5);color:var(--rcs-text)}.date-sheet .date-sheet-back{background:transparent}
+    .date-sheet .date-sheet-close svg,.date-sheet .date-sheet-back svg{width:20px;height:20px}
+    .date-sheet .date-modes{border:1px solid var(--rcs-line);border-radius:999px;overflow:hidden}.date-sheet .date-mode{height:38px;font-size:14px}
+    .date-sheet .calendar-presets{margin:0 -16px;padding:0 16px;gap:8px}.date-sheet .calendar-preset{height:36px;padding:0 14px;font-size:14px}
+    .date-sheet .calendar-weekdays{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));flex:none;height:28px;align-items:center;border-bottom:1px solid var(--rcs-line);color:var(--rcs-muted);font-size:12px;font-weight:600;text-align:center}
+    .date-sheet .calendar-months{flex:1 1 auto;min-height:0;margin:0 -16px;padding:0 16px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+    .date-sheet .calendar-month-block{padding:4px 0 12px}
+    .date-sheet .calendar-month-title{position:sticky;top:0;z-index:1;display:block;width:100%;height:40px;padding:0 4px;border:0;background:var(--rcs-bg);color:var(--rcs-text);font-size:16px;font-weight:700;text-align:start}
+    .date-sheet .calendar-grid{gap:2px 0;grid-template-rows:none}.date-sheet .calendar-day{font-size:15px}
+    .date-sheet .calendar-day::before{width:40px;height:40px;border-radius:999px}
+    .date-sheet .calendar-day.range::before,.date-sheet .calendar-day.preview::before{width:100%;border-radius:0}
+    .date-sheet .calendar-day.range-start::after,.date-sheet .calendar-day.range-end::after{content:'';position:absolute;z-index:-2;top:50%;height:40px;width:50%;transform:translateY(-50%);background:var(--calendar-band)}
+    .date-sheet .calendar-day.range-start::after{right:0}.date-sheet .calendar-day.range-end::after{left:0}
+    .date-sheet .date-sheet-choices{flex:1 1 auto;min-height:0;overflow:auto}.date-sheet .calendar-choices{height:auto;grid-auto-rows:48px;gap:6px}.date-sheet .calendar-option{font-size:15px}
+    .date-sheet .calendar-footer{flex-wrap:wrap;gap:8px;padding-top:10px}.date-sheet .calendar-summary{flex-basis:100%;font-size:14px;line-height:20px;color:var(--rcs-text)}
+    .date-sheet .calendar-actions{flex:1 1 100%;gap:8px}.date-sheet .calendar-clear,.date-sheet .calendar-apply{height:44px;font-size:15px}.date-sheet .calendar-clear{flex:none;padding:0 18px}.date-sheet .calendar-apply{flex:1}
+    @media (prefers-reduced-motion:no-preference){.date-popover.date-sheet:not([hidden]){animation:date-sheet-in .2s ease-out}.date-sheet-scrim{animation:date-sheet-fade .2s ease-out}}
+    @keyframes date-sheet-in{from{transform:translateY(24px);opacity:.6}to{transform:none;opacity:1}}@keyframes date-sheet-fade{from{opacity:0}to{opacity:1}}
   `;
   globalThis.RCSDatePicker=DatePicker;
 })();
