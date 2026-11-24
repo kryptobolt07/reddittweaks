@@ -86,6 +86,7 @@
       ],
       "run_at": "document_start",
       "js": [
+        "rt-core.js",
         "post-menu-dom.js",
         "profile-notice.js",
         "share-links-settings.js",

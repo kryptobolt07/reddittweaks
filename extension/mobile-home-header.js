@@ -146,12 +146,14 @@
         if (this.shown && y - this.edge >= 24) this.shown = false;
         const next = this.shown ? 'shown' : 'hidden';
         if (this.header.getAttribute(this.state) !== next) this.header.setAttribute(this.state,next);
+        document.documentElement.style.setProperty('--rt-visible-header-height', (this.shown ? this.height : 0) + 'px');
         return;
       }
       if (home && y < this.height) {
         this.shown = false;
         this.edge = y;
         this.header.removeAttribute(this.state);
+        document.documentElement.style.setProperty('--rt-visible-header-height', this.height + 'px');
         return;
       }
       if (y === 0) {
@@ -168,6 +170,7 @@
       }
       const next = this.shown ? 'shown' : 'hidden';
       if (this.header.getAttribute(this.state) !== next) this.header.setAttribute(this.state,next);
+      document.documentElement.style.setProperty('--rt-visible-header-height', (this.shown ? this.height : 0) + 'px');
     }
     detach() {
       if (this.frame) cancelAnimationFrame(this.frame);
@@ -177,6 +180,7 @@
       this.header?.removeAttribute(this.state);
       this.header?.removeAttribute('data-rt-nav-hidden');
       this.header?.style.removeProperty(this.state === homeState ? '--rt-home-nav-height' : '--rt-post-nav-height');
+      document.documentElement.style.removeProperty('--rt-visible-header-height');
       this.row?.removeEventListener('focusin',this.onFocus);
       this.search?.remove();
       this.header = this.row = this.search = null;
@@ -197,7 +201,17 @@
   }
 
   globalThis.RTMobileHomeHeader = Object.freeze({HomeHeader,navKey,NAV_DEFAULTS});
-  if (globalThis.chrome?.runtime?.id) {
+  if (globalThis.RTCore?.settings) {
+    const sync = globalThis.RTCore.settings.readSync();
+    const header = new HomeHeader(sync ? {settings:sync} : {});
+    const update = value => header.setModes(value && typeof value === 'object' ? value : {});
+    let first = Boolean(sync);
+    globalThis.RTCore.settings.subscribe((value, meta) => {
+      if (first && meta?.sync) { first = false; return; }
+      first = false;
+      update(value);
+    });
+  } else if (globalThis.chrome?.runtime?.id) {
     let read;
     try { read = chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'}).then(answer => answer?.settings || null); } catch { read = Promise.resolve(null); }
     const header = new HomeHeader({settings:read});

@@ -194,7 +194,7 @@
       },()=>reply({ok:false,error:'Signed-out profile read failed.'}));
     }catch{reply({ok:false,error:'Signed-out profile read failed.'});}
   });
-  let settings;try{settings=chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'});}catch(error){settings=Promise.reject(error);}settings.catch(()=>{});
+  let settings;try{settings=globalThis.RTCore?.settings?.getResponse?.() || chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'});}catch(error){settings=Promise.reject(error);}settings.catch(()=>{});
   globalThis.RTProfileNoticeGuard=Object.freeze({refresh,setEnabled,syncEnabled,setRestoreEnabled,unavailableNotice,notFoundNotice,resolveBlockedNotice,completeBlockedProfile,emptyTemplate,settings,resolveCommentAlert,permalinkComment});
   // Observe the Document: the root may not exist yet at document_start.
   const observer=new MutationObserver(records=>{

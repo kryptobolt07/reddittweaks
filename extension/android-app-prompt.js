@@ -93,7 +93,7 @@
   }
 
   function visibleSheet() {
-    return [...document.querySelectorAll('rpl-dialog[open], dialog[open], rpl-bottom-sheet[open], [aria-modal="true"]')]
+    return [...document.querySelectorAll('rpl-dialog[open], dialog[open], rpl-bottom-sheet[open], shreddit-sheet[open], faceplate-modal[open], [data-rt-modal-open], [aria-modal="true"]')]
       .some(node => {
         const style = getComputedStyle(node);
         return style.display !== 'none' && style.visibility !== 'hidden';
@@ -220,6 +220,10 @@
     revealCurrentPost();
   }
   const runtime = (globalThis.browser || globalThis.chrome)?.runtime;
+  if (globalThis.RTCore?.settings) {
+    globalThis.RTCore.settings.subscribe(settings => applyPreferences(settings));
+    return;
+  }
   if (!runtime?.id) return;
   runtime.onMessage.addListener((message, sender) => {
     if (sender?.id === runtime.id && message?.scope === 'rt-posts' && message.action === 'settings-changed') {

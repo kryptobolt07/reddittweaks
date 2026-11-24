@@ -76,7 +76,7 @@
    for(const node of nodes){if(!node.isConnected)continue;if(node.matches?.(selector))this.watch(node);for(const unit of node.querySelectorAll?.(selector) || [])this.watch(unit);}
   }
   watch(unit){
-   if(this.observed.has(unit) || !this.io)return;
+   if(this.observed.has(unit) || !this.io || unit.hasAttribute('data-rt-muted'))return;
    // The extension's own profile feeds are handled by its page-world bridge; its own UI is never touched.
    if(unit.closest('shreddit-feed[data-rt-loading-owner]'))return;
    const own=unit.matches(OWN);
@@ -93,6 +93,7 @@
     if(height>0 && !unit.hasAttribute('data-rt-skip')){unit.style.containIntrinsicSize='auto '+height+'px';unit.setAttribute('data-rt-skip','');}
    }
   }
+  reveal(unit){return reveal(unit);}
   unwatch(unit){
    this.observed.delete(unit);this.io?.unobserve(unit);
    unit.removeAttribute('data-rt-skip');unit.removeAttribute('data-rt-smooth');unit.style.removeProperty('contain-intrinsic-size');
@@ -100,10 +101,23 @@
   clear(){for(const unit of this.observed)this.unwatch(unit);this.io?.takeRecords?.();}
   destroy(){this.dead=true;this.doc.documentElement.removeAttribute('data-rt-smooth-site');this.mo?.disconnect();this.pending.clear();this.removed.clear();this.clear();this.io?.disconnect();removeEventListener('popstate',this.onRoute);this.doc.removeEventListener('reddit:route',this.onRoute);}
  }
- globalThis.RTSmoothScroll=Object.freeze({Smooth,area,enabled});
- if(globalThis.chrome?.runtime?.id && !globalThis.__rtSmoothScrollTest){
-  const read=async()=>{const r=await chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'});return r?.ok?r.settings:{};};
-  const smooth=new Smooth({readSettings:read});
-  chrome.runtime.onMessage.addListener((message,sender)=>{if(message?.scope==='rt-posts' && message.action==='settings-changed' && sender?.id===chrome.runtime.id)smooth.configure(message.settings);});
+ function reveal(unit){
+  const target=unit?.hasAttribute?.('data-rt-skip')?unit:unit?.closest?.('[data-rt-smooth][data-rt-skip]');
+  if(!target)return false;
+  target.removeAttribute('data-rt-skip');
+  return true;
+ }
+ globalThis.RTSmoothScroll=Object.freeze({Smooth,area,enabled,reveal});
+ if(!globalThis.__rtSmoothScrollTest){
+  if(globalThis.RTCore?.settings){
+   const sync=globalThis.RTCore.settings.readSync();
+   const smooth=new Smooth({readSettings:async()=>await globalThis.RTCore.settings.get() || sync || {}});
+   if(sync)smooth.configure(sync);
+   globalThis.RTCore.settings.subscribe((s,meta)=>{if(!meta?.sync && s)smooth.configure(s);});
+  }else if(globalThis.chrome?.runtime?.id){
+   const read=async()=>{const r=await chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'});return r?.ok?r.settings:{};};
+   const smooth=new Smooth({readSettings:read});
+   chrome.runtime.onMessage.addListener((message,sender)=>{if(message?.scope==='rt-posts' && message.action==='settings-changed' && sender?.id===chrome.runtime.id)smooth.configure(message.settings);});
+  }
  }
 })();
