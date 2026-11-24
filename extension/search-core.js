@@ -446,8 +446,13 @@
       const removed=this.redacted.get(room);
       for(const id of redacted){removed.add(id);index.delete(id);}
       const named=author=>typeof author==='string' && author.trim() && !author.startsWith('@') && !['[deleted]','Someone','Unknown sender','Message'].includes(author);
-      const speakers=new Map();
-      for(const message of [...index.values(),...messages])if(message.sender) {
+      // Speaker names are kept per room and updated from each upsert's messages, instead of being rebuilt from the
+      // whole room on every upsert (the chat heartbeat upserts the visible messages every 1.8 s).
+      this.speakers ||= new Map();
+      let speakers=this.speakers.get(room);
+      const fresh=!speakers;
+      if(fresh){speakers=new Map();this.speakers.set(room,speakers);}
+      for(const message of fresh?[...index.values(),...messages]:messages)if(message.sender) {
         const previous=speakers.get(message.sender) || {};
         speakers.set(message.sender,{...previous,...(named(message.author)?{author:message.author,authorHistorical:message.authorHistorical,authorUnavailable:message.authorUnavailable}:{}),authorSelf:message.authorSelf ?? previous.authorSelf,avatar:message.avatar || previous.avatar || ''});
       }
@@ -472,7 +477,7 @@
       while (index.size > this.limit) index.delete(index.keys().next().value);
       // Keep no more than 20 conversations in memory.
       while (this.rooms.size > 20) {
-        const oldest=this.rooms.keys().next().value;this.rooms.delete(oldest);this.redacted.delete(oldest);this.onEvict(oldest);
+        const oldest=this.rooms.keys().next().value;this.rooms.delete(oldest);this.redacted.delete(oldest);this.speakers?.delete(oldest);this.onEvict(oldest);
       }
     }
     search(room, query,dates={},options={}) {
@@ -485,7 +490,7 @@
       const ids=new Set(messages.filter(message=>message.id && message.text).map(message=>message.id));
       for(const id of this.rooms.get(room).keys())if(!ids.has(id))this.rooms.get(room).delete(id);
     }
-    clear() { this.rooms.clear();this.redacted.clear(); }
+    clear() { this.rooms.clear();this.redacted.clear();this.speakers?.clear(); }
   }
   // One list of search tips for every search box, cut down to the fields that box supports.
   // Each tip: the syntax, what it does and an example that can be put into the box.

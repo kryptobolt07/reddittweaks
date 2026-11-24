@@ -787,7 +787,7 @@
     let value;try{value=JSON.parse(event.detail);}catch{return;}
     const owner=globalThis.RCSDirectory?.getOwner();
     if(owner && value?.owner!==owner || typeof value?.roomId!=='string')return;
-    if(value.evicted){index.rooms.delete(value.roomId);index.redacted.delete(value.roomId);completeRooms.delete(value.roomId);return;}
+    if(value.evicted){index.rooms.delete(value.roomId);index.redacted.delete(value.roomId);index.speakers?.delete(value.roomId);completeRooms.delete(value.roomId);return;}
     index.upsert(value.roomId,value.records || [],{authoritative:true,redacted:value.redacted || []});
     value.complete ? completeRooms.add(value.roomId) : completeRooms.delete(value.roomId);
     for(const control of controls.values())if(control.kind==='messages' && control.room===value.roomId) {
