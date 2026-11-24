@@ -389,7 +389,8 @@ test('a filtered feed with no remaining native pager explains the end and keeps 
  assert.equal(footer(),null);
  D.querySelector('[slot=load-after]').outerHTML='<faceplate-batch>'+card('video')+'</faceplate-batch>';
  await flush();
- assert.match(footer()?.textContent,/end of this Reddit feed/);
+ assert.match(footer()?.textContent,/Reddit stopped loading older posts/);
+ assert.match(footer()?.textContent,/about 1,000 posts/);
  assert.equal(footer()?.previousElementSibling,D.querySelector('shreddit-feed'));
  [...footer().querySelectorAll('button')].find(button=>button.textContent==='New').click();
  const target=new W.URL(targets.at(-1));
@@ -929,4 +930,115 @@ test('filtered feeds distinguish loading, paused and empty states cleanly',async
   assert.equal(note.querySelector('[data-rt-community-continue]'),null);
   assert.ok(note.querySelector('[data-rt-community-clear]'));
  }
+});
+
+test('New sort end-of-feed reports checked count, oldest date, Reddit limit, search fallback and archive opt-in hint',async t=>{
+ const oldIso='2026-11-10T12:00:00Z';
+ const markup=sortedFeed()
+  .replace('post-type="video"','id="t3_live1" created-timestamp="2026-11-20T12:00:00Z" post-type="video"')
+  .replace('post-type="text"','id="t3_live2" created-timestamp="'+oldIso+'" post-type="text"');
+ const {D,W,targets,controller}=setup(t,'/r/Example/new/?rt_type=video&f=flair_name%3A%22News%22&rt_nsfw=1',markup);
+ let archiveCalls=0;
+ W.RTArchiveQuery={search(){archiveCalls++;async function* g(){yield {items:[],hasMore:false};}return g();}};
+ D.querySelector('[slot=load-after]').outerHTML='<faceplate-batch><article><shreddit-post id="t3_live3" post-type="text" created-timestamp="2026-11-11T00:00:00Z"></shreddit-post></article></faceplate-batch>';
+ await flush();
+ const end=D.querySelector('[data-rt-ui="community-filter-end"]');
+ assert.equal(end?.dataset.state,'end');
+ assert.match(end.textContent,/Checked 3 posts back to/);
+ assert.match(end.textContent,/2026|Nov 10/);
+ assert.match(end.textContent,/about 1,000 posts/);
+ assert.equal(end.querySelector('[data-rt-community-archive]'),null,'no archive button when Use the archive is off');
+ assert.match(end.textContent,/Turn on Use the archive/);
+ assert.equal(archiveCalls,0);
+ end.querySelector('[data-rt-community-search-older]').click();
+ const url=new W.URL(targets.at(-1));
+ assert.equal(url.pathname,'/r/Example/search/');
+ assert.equal(url.searchParams.get('sort'),'new');
+ assert.equal(url.searchParams.get('t'),'all');
+ assert.equal(url.searchParams.get('type'),'media');
+ assert.equal(url.searchParams.get('rt_type'),'video');
+ assert.match(url.searchParams.get('q'),/subreddit:Example/);
+ assert.match(url.searchParams.get('q'),/nsfw:yes/);
+ assert.match(url.searchParams.get('q'),/flair:"News"/);
+ void controller;
+});
+
+test('Arctic Shift continuation continues before oldest New post, deduplicates, filters and supports paging/retry/abort',async t=>{
+ const oldestIso='2026-11-10T12:00:00.000Z';
+ const oldestSec=Math.floor(Date.parse(oldestIso)/1000);
+ const markup=sortedFeed().replace('post-type="text"','id="t3_dup" created-timestamp="'+oldestIso+'" post-type="text"');
+ const {D,W,controller}=setup(t,'/r/Example/new/?rt_type=video',markup);
+ const calls=[];
+ let failNext=false,abortedSignal=null;
+ const renderedCards=[];
+ W.RTPostDiscovery={archiveCard:(item,opts)=>{
+  renderedCards.push({id:item.fullname,viewType:opts.viewType});
+  const wrap=D.createElement('div');
+  wrap.className='rt-native-card';
+  wrap.dataset.fullname=item.fullname;
+  wrap.textContent=item.title;
+  return wrap;
+ }};
+ W.RTArchiveQuery={
+  search(opts){
+   calls.push({...opts,aborted:opts.signal?.aborted});
+   abortedSignal=opts.signal;
+   async function* gen(){
+    if(failNext)throw Error('Archive timed out');
+    if(!opts.cursor){
+     yield {
+      items:[
+       {id:'dup',fullname:'t3_dup',kind:'post',subreddit:'Example',title:'Already in live feed',url:'https://youtu.be/dup',created:oldestSec,permalink:'/r/Example/comments/dup/'},
+       {id:'txt1',fullname:'t3_txt1',kind:'post',subreddit:'Example',title:'Text post skipped',postType:'text',created:oldestSec-10,permalink:'/r/Example/comments/txt1/'},
+       {id:'vid1',fullname:'t3_vid1',kind:'post',subreddit:'Example',title:'YouTube link match',postType:'link',url:'https://youtube.com/watch?v=123',domain:'youtube.com',created:oldestSec-20,permalink:'/r/Example/comments/vid1/'}
+      ],
+      hasMore:true,cursor:oldestSec-19,searchedBackTo:oldestSec-20,stalled:false
+     };
+    } else {
+     yield {
+      items:[
+       {id:'vid2',fullname:'t3_vid2',kind:'post',subreddit:'Example',title:'Native video match',postType:'video',created:oldestSec-100,permalink:'/r/Example/comments/vid2/'}
+      ],
+      hasMore:false,cursor:null,searchedBackTo:oldestSec-100,stalled:false
+     };
+    }
+   }
+   return gen();
+  }
+ };
+ controller.setArchiveEnabled(true);
+ D.querySelector('[slot=load-after]').outerHTML='<faceplate-batch></faceplate-batch>';
+ await flush();
+
+ const startBtn=D.querySelector('[data-rt-community-archive]');
+ assert.ok(startBtn);
+ startBtn.click();
+ await new Promise(resolve=>setTimeout(resolve,20));
+
+ assert.equal(calls.length,1);
+ assert.equal(calls[0].before,oldestSec+1,'chronological New sort bounds archive before oldest live second + 1');
+ assert.equal(D.querySelector('[data-rt-community-archive]'),null,'Continue button hides once section is open');
+ const cont=D.querySelector('[data-rt-ui="community-archive-continuation"]');
+ assert.ok(cont);
+ assert.match(cont.textContent,/Coverage may be partial/);
+ assert.doesNotMatch(cont.textContent,/complete/i);
+ assert.deepEqual(renderedCards.map(c=>c.id),['t3_vid1'],'skips duplicate ID and non-video text post, keeps external YouTube link');
+
+ // Error & Retry on page 2
+ failNext=true;
+ D.querySelector('[data-rt-community-archive-more]').click();
+ await new Promise(resolve=>setTimeout(resolve,20));
+ assert.match(cont.textContent,/Archive timed out/);
+ failNext=false;
+ D.querySelector('[data-rt-community-archive-retry]').click();
+ await new Promise(resolve=>setTimeout(resolve,20));
+ assert.equal(calls.length,3);
+ assert.equal(calls[2].cursor,oldestSec-19);
+ assert.deepEqual(renderedCards.map(c=>c.id),['t3_vid1','t3_vid2']);
+ assert.match(cont.textContent,/End of what Arctic Shift returned · Coverage may be partial/);
+
+ // Changing filter or turning archive off clears and aborts.
+ controller.setArchiveEnabled(false);
+ assert.equal(D.querySelector('[data-rt-ui="community-archive-continuation"]'),null);
+ assert.equal(abortedSignal?.aborted,true);
 });

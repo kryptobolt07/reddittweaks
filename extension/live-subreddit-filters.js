@@ -354,11 +354,35 @@
     } catch { return new Map(); }
   }
 
+  const isExternalVideoPost = post => {
+    const domain = String(post?.domain || '').replace(/^www\./i,'');
+    if (domain && videoHosts.test(domain)) return true;
+    try { return Boolean(post?.url && videoHosts.test(new URL(post.url,location.href).hostname.replace(/^www\./i,''))); }
+    catch { return false; }
+  };
+  function matchesArchivePost(post, wanted, flair, nsfw) {
+    if (!post || post.kind === 'comment') return false;
+    if (nsfw && !(post.over18 || post.nsfw)) return false;
+    if (flair && fold(post.flair ?? post.link_flair_text ?? '') !== flair) return false;
+    if (wanted.size) {
+      const type = filters.inferType(post);
+      if (!wanted.has(type) && !(wanted.has('video') && (type === 'embed' || type === 'link') && isExternalVideoPost(post))) return false;
+    }
+    return true;
+  }
+  const archivePostKey = item => item?.fullname || (item?.id ? 't3_' + String(item.id).replace(/^t3_/i,'') : '');
+  const archiveNodeKey = card => {
+    const id = card?.id || '';
+    if (id) return /^t3_/i.test(id) ? id : 't3_' + id;
+    return card?.getAttribute?.('permalink') || '';
+  };
+
   class Controller {
-    constructor({navigate: go = navigate, enabled = true, waitingForSettings = false} = {}) {
+    constructor({navigate: go = navigate, enabled = true, waitingForSettings = false, archiveEnabled = false} = {}) {
       this.navigate = go;
       this.enabled = enabled;
       this.waitingForSettings = waitingForSettings;
+      this.archiveEnabled = Boolean(archiveEnabled);
       this.hidden = new Set();
       const WeakElementMap = globalThis.RTPostModel?.WeakElementMap;
       this.parked = WeakElementMap ? new WeakElementMap() : new Map();
@@ -581,6 +605,14 @@
       this.refresh();
     }
 
+    setArchiveEnabled(enabled) {
+      const next = Boolean(enabled);
+      if (this.archiveEnabled === next) return;
+      this.archiveEnabled = next;
+      if (!next) this.clearArchiveContinuation();
+      if (this.feed?.isConnected) this.refresh();
+    }
+
     rememberPost(url, card = null) {
       const id = postId(url.pathname), feed = this.feed;
       if (!id || url.origin !== location.origin || !this.enabled || !feed?.isConnected ||
@@ -706,6 +738,7 @@
       this.toolbar?.remove();this.chips?.remove();
       this.note?.remove();
       this.endNote?.remove();
+      this.clearArchiveContinuation();
       this.feedPagination = null;
       this.toolbar = this.note = this.feed = this.main = this.scope = null;
       this.clearHidden();
@@ -1249,6 +1282,7 @@
       const sameFilters = parkKey === this.parkKey;
       if (!sameFilters) {
         this.restoreParked();
+        this.clearArchiveContinuation();
         this.parkKey = parkKey;
       }
       const source = this.feed ? this.url.pathname + '\n' + (this.feed.getAttribute('reload-url') || '') : '';
@@ -1258,7 +1292,7 @@
       const recordCard = card => {
         const fp = this.feedPagination;
         if (!fp || !card) return;
-        const id = card.id || card.getAttribute('permalink');
+        const id = archiveNodeKey(card);
         if (id && fp.seenIds.size < 5000) fp.seenIds.add(id);
         const sec = cardTimestamp(card);
         if (sec != null) {
@@ -1408,35 +1442,286 @@
       });
     }
 
-    syncFeedEnd(pager,filterCount,matching,evaluatedPosts) {
+    isNewSort() {
+      return this.scope?.sort === 'new' || Boolean(this.feedSorts?.sorting?.choices?.find(choice => choice.selected && choice.key === 'new'));
+    }
+
+    currentViewType() {
+      return this.feedView?.choices?.find(choice => choice.selected)?.key || 'cardView';
+    }
+
+    olderSearchUrl() {
+      const url = new URL(searchUrl(this.url,this.scope.name));
+      url.searchParams.set('t','all');
+      const types = this.selectedTypes();
+      if (types.length && types.every(type => mediaTypes.has(type))) {
+        url.searchParams.set('type','media');
+        url.searchParams.set('rt_type',types.join(','));
+      }
+      return url;
+    }
+
+    syncFeedEnd(pager,filterCount,matching,evaluatedPosts,checkedCount) {
       if (!this.feed) return false;
       const source = this.url.pathname + '\n' + (this.feed.getAttribute('reload-url') || '');
       if (this.feedPagination?.source !== source) this.feedPagination = {source,pager:null,seenIds:new Set(),oldestSec:Infinity,newestSec:0};
       if (pager) this.feedPagination.pager = pager;
       const ended = Boolean(filterCount && (matching || evaluatedPosts || this.feedPagination?.seenIds.size) && !pager &&
         this.feedPagination.pager && !this.feedPagination.pager.isConnected);
-      if (!ended) { this.endNote?.remove(); return false; }
+      if (!ended) { this.endNote?.remove(); this.clearArchiveContinuation(); return false; }
 
       const alternatives = (this.feedSorts?.sorting?.choices || []).filter(choice =>
         !choice.selected && ['new','top'].includes(choice.key));
-      const message = matching ? 'You’ve reached the end of this Reddit feed.' : 'No posts in this Reddit feed match your filters.';
-      const state = JSON.stringify([message,...alternatives.map(choice => choice.url)]);
-      if (this.endNote?.isConnected && this.endNote.dataset.state === state) return true;
+      const oldestSec = Number.isFinite(this.feedPagination?.oldestSec) ? this.feedPagination.oldestSec : null;
+      const newSort = this.isNewSort();
+      const title = matching ? 'Reddit stopped loading older posts' : 'No matching posts in what Reddit loaded';
+      const coveragePrefix = newSort && oldestSec != null
+        ? (checkedCount ? 'Checked ' + checkedCount.toLocaleString('en-US') + ' posts back to ' + formatDay(oldestSec) + '. ' : 'Reached ' + formatDay(oldestSec) + '. ')
+        : checkedCount ? 'Checked ' + checkedCount.toLocaleString('en-US') + ' posts. ' : '';
+      const limitText = matching
+        ? 'Reddit caps each feed listing at about 1,000 posts, so older posts aren’t included here.'
+        : 'Reddit caps each feed listing at about 1,000 posts, so older posts may still match.';
+      const bodyText = coveragePrefix + limitText;
+      const canArchive = this.scope?.surface === 'subreddit' && this.archiveEnabled && Boolean(globalThis.RTArchiveQuery?.search);
+      const showArchiveBtn = canArchive && !this.archiveCont;
+      const showSearchBtn = this.scope?.surface === 'subreddit' || Boolean(this.scope?.owner);
+      const showArchiveHint = this.scope?.surface === 'subreddit' && !this.archiveEnabled;
+      const state = JSON.stringify([title,bodyText,canArchive,Boolean(this.archiveCont),this.archiveEnabled,showSearchBtn,...alternatives.map(choice => choice.url)]);
+      if (this.endNote?.isConnected && this.endNote.dataset.sig === state) {
+        if (this.archiveCont?.root?.isConnected && this.endNote.nextElementSibling !== this.archiveCont.root) this.endNote.after(this.archiveCont.root);
+        return true;
+      }
       this.endNote?.remove();
-      const note = this.endNote = make('div','rt-community-note');
+      const note = this.endNote = make('div','rt-community-state');
       note.dataset.rtUi = 'community-filter-end';
-      note.dataset.state = state;
-      const label = make('span','',message);
+      note.dataset.state = 'end';
+      note.dataset.sig = state;
+      const head = make('div','rt-community-state-head');
+      const badge = make('span','rt-community-state-icon');
+      badge.setAttribute('aria-hidden','true');
+      badge.append(filters.svgIcon('archive',20) || filters.svgIcon('filter',20));
+      const label = make('span','rt-community-state-title',title);
       label.setAttribute('role','status');
-      note.append(label);
+      head.append(badge,label);
+      const body = make('p','rt-community-state-body',bodyText);
+      const actions = make('div','rt-community-state-actions');
+      if (showArchiveBtn) {
+        const archiveBtn = make('button','rt-community-action rt-community-action-primary','Continue in Arctic Shift');
+        archiveBtn.type = 'button';
+        archiveBtn.dataset.rtCommunityArchive = '';
+        archiveBtn.prepend(filters.svgIcon('archive',16));
+        archiveBtn.addEventListener('click',() => this.startArchiveContinuation());
+        actions.append(archiveBtn);
+      }
+      if (showSearchBtn) {
+        const searchBtn = make('button','rt-community-action',this.scope.owner ? 'Search this feed' : 'Search r/' + this.scope.name);
+        searchBtn.type = 'button';
+        searchBtn.dataset.rtCommunitySearchOlder = '';
+        searchBtn.title = 'Open Reddit search to reach older posts and filter by date';
+        searchBtn.prepend(filters.svgIcon('search',16));
+        searchBtn.addEventListener('click',() => this.go(this.olderSearchUrl()));
+        actions.append(searchBtn);
+      }
       for (const choice of alternatives) {
-        const link = make('button','rt-community-button',choice.label);
+        const link = make('button','rt-community-action',choice.label);
         link.type = 'button';
         link.addEventListener('click',() => this.chooseFeedSort(choice));
-        note.append(link);
+        actions.append(link);
+      }
+      note.append(head,body,actions);
+      if (showArchiveHint) {
+        note.append(make('p','rt-community-state-hint','Turn on Use the archive in Reddit Tweaks settings to continue into older posts from Arctic Shift.'));
       }
       this.feed.after(note);
+      if (this.archiveCont?.root?.isConnected) note.after(this.archiveCont.root);
       return true;
+    }
+
+    clearArchiveContinuation() {
+      const state = this.archiveCont;
+      if (!state) return;
+      state.controller.abort();
+      state.gen++;
+      state.root?.remove();
+      this.archiveCont = null;
+    }
+
+    startArchiveContinuation() {
+      if (this.scope?.surface !== 'subreddit' || !this.archiveEnabled || !globalThis.RTArchiveQuery?.search || this.archiveCont) return;
+      const seen = new Set(this.feedPagination?.seenIds || []);
+      for (const card of this.feed?.querySelectorAll('shreddit-post') || []) {
+        const key = archiveNodeKey(card);
+        if (key) seen.add(key);
+      }
+      for (const [,entry] of this.parked) {
+        const key = archiveNodeKey(entry?.card);
+        if (key) seen.add(key);
+      }
+      const oldestSec = Number.isFinite(this.feedPagination?.oldestSec) ? this.feedPagination.oldestSec : null;
+      const chronological = this.isNewSort() && oldestSec != null;
+      const before = chronological ? oldestSec + 1 : undefined;
+      const boundDay = chronological ? formatDay(oldestSec) : '';
+      const root = make('section','rt-community-archive');
+      root.dataset.rtUi = 'community-archive-continuation';
+      root.setAttribute('aria-label','Older archived posts from Arctic Shift');
+      const head = make('div','rt-community-archive-head');
+      const titleRow = make('div','rt-community-archive-title');
+      titleRow.append(filters.svgIcon('archive',16),make('span','','Older posts from Arctic Shift' + (boundDay ? ' · Before ' + boundDay : ' · Newest first')));
+      const note = make('p','rt-community-archive-note','Coverage may be partial. Open a post to vote or comment.');
+      head.append(titleRow,note);
+      const list = make('div','rt-community-archive-list');
+      list.dataset.rtArchiveFeed = 'true';
+      list.dataset.rtViewType = this.currentViewType();
+      const foot = make('div','rt-community-archive-foot');
+      root.append(head,list,foot);
+      const state = this.archiveCont = {
+        gen:1,
+        controller:new AbortController(),
+        seen,
+        before,
+        boundDay,
+        cursor:undefined,
+        items:[],
+        cards:new Map(),
+        hasMore:true,
+        stalled:false,
+        loading:false,
+        error:null,
+        searchedBackTo:null,
+        types:this.selectedTypes(),
+        flair:this.activeFlair(),
+        nsfw:this.activeNsfw(),
+        subreddit:this.scope.name,
+        root,
+        list,
+        foot,
+      };
+      if (this.endNote?.isConnected) this.endNote.after(root);
+      else this.feed?.after(root);
+      this.refresh();
+      this.loadMoreArchive();
+    }
+
+    async loadMoreArchive() {
+      const state = this.archiveCont;
+      if (!state || state.loading || !state.hasMore || state.stalled) return;
+      state.loading = true;
+      state.error = null;
+      this.renderArchiveContinuation();
+      const wanted = new Set(state.types);
+      const flair = fold(state.flair);
+      const nsfw = Boolean(state.nsfw);
+      let added = 0;
+      try {
+        for await (const page of globalThis.RTArchiveQuery.search({
+          kind:'post',
+          subreddit:state.subreddit,
+          sort:'desc',
+          before:state.cursor == null ? state.before : undefined,
+          cursor:state.cursor ?? undefined,
+          flair:state.flair || undefined,
+          over18:nsfw ? true : undefined,
+          maxPages:5,
+          signal:state.controller.signal,
+        })) {
+          if (this.archiveCont !== state || state.controller.signal.aborted) return;
+          state.searchedBackTo = page.searchedBackTo ?? state.searchedBackTo;
+          state.cursor = page.cursor ?? null;
+          state.stalled = Boolean(page.stalled);
+          state.hasMore = page.hasMore === true && state.cursor != null && !state.stalled;
+          let pageAdded = 0;
+          for (const item of page.items || []) {
+            const key = archivePostKey(item);
+            if (!key || state.seen.has(key)) continue;
+            state.seen.add(key);
+            if (!matchesArchivePost(item,wanted,flair,nsfw)) continue;
+            state.items.push(item);
+            added++;
+            pageAdded++;
+          }
+          if (pageAdded > 0) this.renderArchiveContinuation();
+          if (added >= 15 || !state.hasMore) break;
+        }
+      } catch (error) {
+        if (error?.name === 'AbortError' || this.archiveCont !== state || state.controller.signal.aborted) return;
+        state.error = {message:error?.message || 'Arctic Shift is unavailable.',code:error?.code};
+      } finally {
+        if (this.archiveCont === state) {
+          state.loading = false;
+          this.renderArchiveContinuation();
+        }
+      }
+    }
+
+    renderArchiveContinuation() {
+      const state = this.archiveCont;
+      if (!state) return;
+      const viewType = this.currentViewType();
+      state.list.dataset.rtViewType = viewType;
+      for (const item of state.items) {
+        const key = archivePostKey(item);
+        if (!key || state.cards.has(key)) continue;
+        let card = null;
+        try { card = globalThis.RTPostDiscovery?.archiveCard?.(item,{viewType}); } catch { card = null; }
+        if (!card) {
+          card = make('div','rt-native-card');
+          card.dataset.rtUi = 'archive-item';
+          card.dataset.fullname = key;
+          const a = make('a','',item.title || item.body || key);
+          a.href = item.permalink || '#';
+          card.append(a);
+        }
+        state.cards.set(key,card);
+        state.list.append(card);
+      }
+      state.foot.replaceChildren();
+      if (state.loading) {
+        const status = make('div','rt-community-state-head');
+        status.append(spinnerIcon(),make('span','rt-community-state-title','Searching Arctic Shift archive…'));
+        state.foot.append(status);
+        if (state.searchedBackTo != null) state.foot.append(make('p','rt-community-state-body','Back to ' + formatDay(state.searchedBackTo)));
+        return;
+      }
+      if (state.error) {
+        state.foot.append(make('p','rt-community-state-body',state.error.message));
+        if (state.error.code !== 'disabled') {
+          const actions = make('div','rt-community-state-actions');
+          const retry = make('button','rt-community-action','Retry');
+          retry.type = 'button';
+          retry.dataset.rtCommunityArchiveRetry = '';
+          retry.addEventListener('click',() => this.loadMoreArchive());
+          actions.append(retry);
+          state.foot.append(actions);
+        }
+        return;
+      }
+      if (state.searchedBackTo != null) {
+        state.foot.append(make('p','rt-community-state-body','Searched archive back to ' + formatDay(state.searchedBackTo) + ' · Coverage may be partial'));
+      }
+      const actions = make('div','rt-community-state-actions');
+      if (!state.items.length) {
+        if (state.hasMore && !state.stalled) {
+          state.foot.append(make('p','rt-community-state-body','No archived posts matched yet. Older archived posts may still match.'));
+          const more = make('button','rt-community-action','Keep searching older');
+          more.type = 'button';
+          more.dataset.rtCommunityArchiveMore = '';
+          more.addEventListener('click',() => this.loadMoreArchive());
+          actions.append(more);
+        } else {
+          state.foot.append(make('p','rt-community-state-body','No matching posts found in what Arctic Shift returned. Coverage may be partial.'));
+        }
+      } else if (state.hasMore && !state.stalled) {
+        const more = make('button','rt-community-action','Load older archived posts');
+        more.type = 'button';
+        more.dataset.rtCommunityArchiveMore = '';
+        more.addEventListener('click',() => this.loadMoreArchive());
+        actions.append(more);
+      } else if (state.stalled) {
+        state.foot.append(make('p','rt-community-state-body','Arctic Shift stopped paging here; older posts may exist.'));
+      } else {
+        state.foot.append(make('p','rt-community-state-body','End of what Arctic Shift returned · Coverage may be partial.'));
+      }
+      if (actions.childElementCount) state.foot.append(actions);
     }
 
     updateNote({mode, checkedCount, stalled, isDate, hasNativeLoader}) {
@@ -2173,9 +2458,17 @@
     const controller = new Controller({enabled:false,waitingForSettings:true});
     globalThis.RTLiveSubredditFiltersDebug = controller;
     // Popup: Sort & filter on feeds (docs/feed-controls-ux-plan.md, 9). Off keeps Reddit's own sort and View.
-    const update = settings => controller.setEnabled(settings?.feedControls !== false);
+    const update = settings => {
+      controller.setEnabled(settings?.feedControls !== false);
+      controller.setArchiveEnabled(settings?.postDiscovery !== false && settings?.archiveDiscovery === true);
+    };
     let receivedChange = false;
-    const failed = () => { if (!receivedChange) controller.setEnabled(false); };
+    const failed = () => {
+      if (!receivedChange) {
+        controller.setEnabled(false);
+        controller.setArchiveEnabled(false);
+      }
+    };
     try {
       Promise.resolve(globalThis.RTProfileNoticeGuard?.settings || chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'})).then(result => {
         if (receivedChange) return;
