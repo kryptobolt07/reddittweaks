@@ -6,7 +6,7 @@
 (() => {
  'use strict';
  if(globalThis.RTVideoControl || window.top!==window)return;
- const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,HOVER_MS=300,LEAVE_MS=250,FADE_MS=200,IN_VIEW=0.6,DWELL_MS=600,AUTOPLAY_MS=150,PROBE_MS=2500,HOLD_2X_MOUSE_MS=300,HOLD_2X_TOUCH_MS=350,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000,CONTINUE_KEY='rt-video-continue-v1',CONTINUE_MS=12000,VOLUME_KEY='rt-video-volume-v1',DIRECT_PREPARE_MS=1500,DIRECT_TRIAL_MS=250,HELLO_MS=3500,EMBED_TRIAL_MS=1500,PREVIEW_STALL_MS=4000;
+ const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,HOVER_MS=300,LEAVE_MS=250,FADE_MS=200,IN_VIEW=0.6,DWELL_MS=600,AUTOPLAY_MS=150,PROBE_MS=2500,HOLD_2X_MOUSE_MS=300,HOLD_2X_TOUCH_MS=350,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000,CONTINUE_KEY='rt-video-continue-v1',CONTINUE_MS=12000,VOLUME_KEY='rt-video-volume-v1',DIRECT_PREPARE_MS=1500,DIRECT_TRIAL_MS=250,HELLO_MS=3500,PLAY_SETTLE_MS=1500,EMBED_TRIAL_MS=1500,PREVIEW_STALL_MS=4000;
  const COMMENT='shreddit-comment',MEDIA_NODES=PLAYERS+', '+COMMENT+' video';
  const commentOf=node=>node?.closest?.(COMMENT);
  const closedThread=node=>Boolean(commentOf(node) && node.closest('shreddit-comment[collapsed],details:not([open]),[hidden], [inert]'));
@@ -298,7 +298,9 @@
     if(this.hold2x && !this.hold2x.engaged)this.endHold2x(false);
     if(this.inView)this.settle();
     else if(this.pointer){this.win.clearTimeout(this.pointerTimer);this.pointerTimer=this.win.setTimeout(()=>this.recheckPointer(),150);}
-    if(this.landing && this.directOpen!=='default' && (!this.directEmbed || this.directEmbed.phase==='start' && !this.directEmbed.ended))this.applyDirectEmbed();
+    // At most once a frame, and not at all once a scan found no embed to start on this post.
+    if(this.landing && this.directOpen!=='default' && !this.directEmbedNone && !this.directScrollFrame && (!this.directEmbed || this.directEmbed.phase==='start' && !this.directEmbed.ended))
+     this.directScrollFrame=this.win.requestAnimationFrame(()=>{this.directScrollFrame=0;if(!this.dead)this.applyDirectEmbed(true);});
    };
    this.onRemember=event=>this.remember(event);
    this.onEmbedLink=event=>{
@@ -466,6 +468,8 @@
   deactivate(){
    if(!this.active)return;
    this.active=false;
+   // Fully passive again: every video gets its own loop setting back.
+   for(const player of this.players){const video=this.video(player);if(video && this.loopOriginal?.has(video)){video.loop=this.loopOriginal.get(video);this.loopOriginal.delete(video);}}
    const doc=this.doc,win=this.win;
    this.mo?.disconnect();this.mo=null;
    this.io?.disconnect();this.io=null;
@@ -644,10 +648,15 @@
    if(this.loopPolicy==='short')return Number.isFinite(video.duration) && video.duration>0 && video.duration<30;
    return null;
   }
+  // The video's own loop value is kept the first time a policy changes it, and put back for Default.
   applyLoopPolicy(player,video){
-   if(!video || mediaKind(player)==='gif' || this.loopPolicy==='default')return;
+   if(!video || mediaKind(player)==='gif')return;
+   this.loopOriginal ||= new WeakMap();
+   if(this.loopPolicy==='default' || !this.active){if(this.loopOriginal.has(video)){video.loop=this.loopOriginal.get(video);this.loopOriginal.delete(video);}return;}
    const want=this.desiredLoop(video);
-   if(want!==null)video.loop=want;
+   if(want===null)return;
+   if(!this.loopOriginal.has(video))this.loopOriginal.set(video,video.loop);
+   video.loop=want;
   }
   startHold2x(event,path){
    if(event.button>0)return;
@@ -968,7 +977,17 @@
   // Playback goes through Reddit's own player (page bridge) so its controls show the playing state; a direct
   // <video>.play() left Reddit's play icon and poster up (measured 2026-11-19).
   play(player,video){
-   if(!player.dispatchEvent(new this.win.Event('rt-play-video',{bubbles:true,cancelable:true})))return Promise.resolve();
+   if(!player.dispatchEvent(new this.win.Event('rt-play-video',{bubbles:true,cancelable:true}))){
+    // Reddit's own player took the start and swallows its outcome: settle by whether the video is playing soon after,
+    // so a refused start still reaches the callers' fallbacks.
+    return new Promise((resolve,reject)=>{
+     if(!video.paused){resolve();return;}
+     let timer=0;const done=ok=>{this.win.clearTimeout(timer);video.removeEventListener('playing',onPlay);ok?resolve():reject(Error('Playback did not start.'));};
+     const onPlay=()=>done(true);
+     video.addEventListener('playing',onPlay);
+     timer=this.win.setTimeout(()=>done(!video.paused),PLAY_SETTLE_MS);
+    });
+   }
    return video.play();
   }
   playPreview(player,preview){
@@ -1506,13 +1525,13 @@
    const {top,bottom,height}=node.getBoundingClientRect();
    return height>0 && (top>=this.win.innerHeight || (bottom ?? top+height)<=0);
   }
-  syncIdleEmbed(embed){
+  syncIdleEmbed(embed,outside){
    if(this.embedPending?.source===embed)return;
    const frame=controlFrame(embed);
    if(!frame || frame.dataset.rtParked)return;
    this.framePolicy(frame,this.blockEmbedLinks(true));
    const state=this.frameState(frame),onlyOnPlay=this.startMode('embed')==='play';
-   if(!state.played && this.outsideViewport(embed)){this.park(embed,frame);return;}
+   if(!state.played && (outside ?? this.outsideViewport(embed))){this.park(embed,frame);return;}
    // A player driven from inside shows its own first frame and controls; it is held there through the frame (its hello
    // is answered with pause), never covered or unloaded in view.
    if(this.expectDirect(frame)){
@@ -1529,10 +1548,13 @@
   }
   // Keep raw On Play and flag-driven players behind their covers until chosen.
   parkIdle(except=null){
+   // Measure every embed first, then park and cover: one layout instead of one per embed.
+   const list=[];
    for(const embed of this.doc.querySelectorAll(ANY_EMBED)){
     if(embed===except || !this.feedEmbed(embed) || embed.dataset.rtEmbedUsed==='1' || this.ePreview?.embed===embed)continue;
-    this.syncIdleEmbed(embed);
+    list.push([embed,this.outsideViewport(embed)]);
    }
+   for(const [embed,outside] of list)if(embed.isConnected)this.syncIdleEmbed(embed,outside);
   }
   // A feed card's embed whose player Reddit has not inserted yet still names it in its markup (embed-html, Embedly).
   stillWanted(embed){
@@ -2118,8 +2140,9 @@
    if(id!==this.landing || this.embedPending || this.pending?.saved?.id===id)return null;
    return [...this.doc.querySelectorAll(ANY_EMBED)].find(embed=>this.isDetailEmbed(embed) && !embed.closest(BLURRED)) || null;
   }
-  applyDirectEmbed(){
-   const embed=this.directEmbedTarget();if(!embed)return;
+  applyDirectEmbed(fromScroll=false){
+   if(!fromScroll)this.directEmbedNone=false;
+   const embed=this.directEmbedTarget();if(!embed){if(fromScroll)this.directEmbedNone=true;return;}
    let st=this.directEmbed;
    if(!st || st.embed!==embed){this.endDirectEmbed();st=this.directEmbed={embed,frame:null,mode:this.directOpen,phase:'start',ended:false};}
    if(st.mode==='paused'){this.directEmbedHold(st);return;}

@@ -2110,3 +2110,23 @@ test('Direct controls: a granted frame previewing before its hello gets no layer
  frameHello(p,e);
  assert.ok(told.some(data=>data.rtMedia==='preview' && data.on===true));
 });
+
+test('a loop policy puts each video\'s own loop setting back when set to Default',async t=>{
+  const p=page(t);let settings={videoStart:'reddit',loopPolicy:'always'};
+  p.W.HTMLMediaElement.prototype.play=function(){this._playing=true;return Promise.resolve();};
+  const c=new p.W.RTVideoControlRaw.Videos({readSettings:async()=>settings,readPreference:async()=>true,observe:false});await c.ready;await flush();
+  c.scan();
+  p.video.loop=false;c.configure({...settings});
+  assert.equal(p.video.loop,true,'Always loop');
+  c.configure({videoStart:'reddit',loopPolicy:'default'});
+  assert.equal(p.video.loop,false,'Default gives Reddit\'s own value back');
+});
+
+test('a start handed to Reddit\'s own player that never plays is reported as failed',async t=>{
+  const p=page(t);
+  const c=new p.W.RTVideoControlRaw.Videos({readSettings:async()=>({videoStart:'reddit'}),readPreference:async()=>true,observe:false});await c.ready;await flush();
+  p.player.addEventListener('rt-play-video',event=>event.preventDefault());
+  await assert.rejects(c.play(p.player,p.video),/did not start/);
+  p.player.addEventListener('rt-play-video',()=>{setTimeout(()=>{p.video._playing=true;p.video.dispatchEvent(new p.W.Event('playing'));},20);});
+  await c.play(p.player,p.video);
+});

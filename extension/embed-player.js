@@ -40,10 +40,14 @@
    if(loopPolicy==='short')return Number.isFinite(video.duration) && video.duration>0 && video.duration<30;
    return null;
   }
+  const loopOriginal=new WeakMap();
   function applyLoop(video=media()){
    if(!video)return;
    const want=desiredLoop(video);
-   if(want!==null)video.loop=want;
+   // Back to the player's own loop setting when the policy returns to Default.
+   if(want===null){if(loopOriginal.has(video)){video.loop=loopOriginal.get(video);loopOriginal.delete(video);}return;}
+   if(!loopOriginal.has(video))loopOriginal.set(video,video.loop);
+   video.loop=want;
   }
   function applyVolume(video=media()){
    if(!video || !Number.isFinite(targetVolume))return;
