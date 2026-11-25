@@ -246,6 +246,9 @@
     .field .control-pill svg { width:16px;height:16px; }
     .field .control-pill.active { color:var(--rcs-accent);background:color-mix(in srgb,var(--rcs-accent) 12%,var(--rcs-bg)); }
     .field .control-pill:hover { background:var(--rcs-hover); }
+    .control-pill:focus-visible,.icon:focus-visible,.icon-button:focus-visible,.search-icon:focus-visible,.refresh:focus-visible { outline:0;background:var(--rcs-hover);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--rcs-text) 24%,transparent); }
+    .field .control-pill.active:focus-visible { box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--rcs-accent) 45%,transparent); }
+    @media (prefers-reduced-motion:no-preference) { .control-pill,.icon,.icon-button,.search-icon,.menu-option,.menu-choice,.scope-tab { transition:background-color .12s ease,color .12s ease,box-shadow .12s ease,border-color .12s ease; } }
     .field input { font:var(--rcs-row-title-font); }
     .search-icon { display:flex;align-items:center;justify-content:center;flex:0 0 24px;width:24px;height:28px;padding:0;border:0;border-radius:50%;color:var(--rcs-muted);background:transparent; }
     .search-icon:hover { background:var(--rcs-hover); }

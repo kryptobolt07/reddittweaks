@@ -114,6 +114,13 @@
     }
     return counts;
   }
+  function countPeople(records,draft='',{filter='all',chatType='all',status='all',wholeWord=false,ignoreFields=false}={}){
+    const matches=peoplePredicate(draft,{wholeWord,ignoreFields});
+    let total=0;
+    const iterable=records && typeof records.values==='function' && !Array.isArray(records)?records.values():records || [];
+    for(const record of iterable)if(legacyRoomAllowed(record,filter) && roomAllowed(record,{chatType,status}) && matches(record))total++;
+    return total;
+  }
   function matchPeople(records,draft='',{filter='all',chatType='all',status='all',sort='newest',wholeWord=false,ignoreFields=false}={}){
     const matches=peoplePredicate(draft,{wholeWord,ignoreFields});
     const newest=(a,b)=>timestamp(b)-timestamp(a);
@@ -122,5 +129,5 @@
       :sort==='unread'?(a,b)=>Number(unread(b))-Number(unread(a)) || newest(a,b):newest;
     return recordList(records).filter(record=>legacyRoomAllowed(record,filter) && roomAllowed(record,{chatType,status}) && matches(record)).sort(compare);
   }
-  globalThis.RCSGlobalSearchModel=Object.freeze({QueryState,matchPeople,roomAllowed,chatFilterCounts,mediaTypes,queryFeedback});
+  globalThis.RCSGlobalSearchModel=Object.freeze({QueryState,matchPeople,countPeople,roomAllowed,chatFilterCounts,mediaTypes,queryFeedback});
 })();

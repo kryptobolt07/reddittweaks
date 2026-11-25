@@ -68,7 +68,7 @@
     .field:focus-within { border-color:var(--rcs-muted); } input { width:100%; min-width:0; border:0; outline:0; background:transparent; color:var(--rcs-text); font-size:12px; height:36px; }
     input::placeholder { color:var(--rcs-muted); opacity:1; } input::-webkit-search-cancel-button { display:none; }
     .icon { display:grid; place-items:center; padding:0; width:28px; height:28px; border:0; border-radius:50%; background:transparent; color:var(--rcs-muted); flex:none; }
-    .icon:hover,.toggle:hover,.load:hover { background:var(--rcs-hover); } button:focus-visible,a:focus-visible { outline:2px solid var(--rcs-accent); outline-offset:2px; }
+    .icon:hover,.toggle:hover,.load:hover { background:var(--rcs-hover); } button:focus-visible,a:focus-visible { outline:2px solid var(--rcs-accent); outline-offset:2px; } .icon:focus-visible { outline:0; background:var(--rcs-hover); box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--rcs-text) 24%,transparent); }
     .icon:disabled { opacity:.35; cursor:default; } .toggle { display:flex; align-items:center; gap:7px; margin:5px 12px; padding:6px 10px; border:0; border-radius:20px; background:transparent; color:var(--rcs-muted); font-size:12px; }
     .panel { position:absolute; top:100%; left:0; right:0; background:var(--rcs-bg); border-bottom:1px solid var(--rcs-line); box-shadow:0 8px 16px #00000010; }
     .scope { display:flex;gap:3px;padding:0 12px 6px;background:var(--rcs-bg); }
@@ -476,7 +476,7 @@
       this.updateLayout();
       // Hydration can finish after document_idle; align the search bar once the
       // real header and virtual scroller arrive instead of leaving it above Chats.
-      this.syncHeaderSearch();const point=A.mountPoint(this.container,this.kind==='messages' ? A.selectors.header : 'rs-room-list-header');if(this.hiddenHeader){point.before=this.hiddenHeader.header;point.ready=true;}this.host.hidden=point.ready===false;
+      this.syncHeaderSearch();const point=A.mountPoint(this.container,this.kind==='messages' ? A.selectors.header : 'rs-room-list-header');if(this.hiddenHeader){point.before=this.hiddenHeader.header;point.ready=true;}this.host.hidden=point.ready===false || Boolean(this.trigger && this.bar.hidden);
       if(point.before!==this.host && (this.host.parentNode!==point.parent || this.host.nextSibling!==point.before)) point.parent.insertBefore(this.host,point.before);
       A.syncSearchLayer?.(this.container,this.host,this.kind==='messages'?A.selectors.header:'rs-room-list-header, rs-rooms-nav-filter');
       if (this.kind === 'list') {

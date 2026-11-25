@@ -249,13 +249,23 @@
     return null;
   }
   let messageHighlight,highlightTimer;
+  function nearestScroller(element){
+    for(let current=element?.parentElement || element?.getRootNode?.().host;current && current!==document.body && current!==document.documentElement;current=current.parentElement || current.getRootNode?.().host){
+      if(current.scrollHeight>current.clientHeight+4 && /auto|scroll/.test(getComputedStyle(current).overflowY || ''))return current;
+    }
+    return null;
+  }
   function revealMessage(element,query='',options={},expanded=false){
     // Use native expansion controls and paint highlights without rewriting the
     // client's message DOM, which belongs to its renderer.
     let expanding=false;
     if(!expanded)for(const button of queryAll('button',element))if(visible(button) && /^(?:read|show) more(?:\s*…|\s*\.\.\.)?$/i.test((button.textContent || button.getAttribute('aria-label') || '').trim())){button.click();expanding=true;}
     if(expanding){requestAnimationFrame(()=>{if(element.isConnected)revealMessage(element,query,options,true);});return;}
-    element.scrollIntoView?.({block:'center',behavior:'instant'});
+    // Scroll only the room's own scroller so ancestor chat shells and headers never shift.
+    const scroller=nearestScroller(element),elRect=scroller && element.getBoundingClientRect?.(),scRect=scroller && scroller.getBoundingClientRect?.();
+    if(scroller && elRect?.height>0 && scRect?.height>0){
+      scroller.scrollTop=Math.max(0,scroller.scrollTop+(elRect.top-scRect.top)-(scRect.height-elRect.height)/2);
+    }else element.scrollIntoView?.({block:'center',behavior:'instant'});
     if(!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)element.animate?.([{backgroundColor:'#ff450033'},{backgroundColor:'transparent'}],{duration:1700,easing:'ease-out'});
     if(!globalThis.CSS?.highlights || !globalThis.Highlight)return;
     clearTimeout(highlightTimer);const ranges=[];
