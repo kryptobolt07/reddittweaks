@@ -11,12 +11,13 @@ The design follows the patterns phone users already know:
 | Part | Phone sheet | Why |
 |---|---|---|
 | Container | Bottom sheet over a dimmed backdrop, up to 640 px or 88% of the screen, 16 px top corners, drag handle, title "Date", round Close | The same pull-up as our other sheets. The thumb reaches it, and the page stays visible above it |
-| Condition | On · Before · After · Between, as a full-width 38 px segmented control | Nothing from the computer picker is lost |
-| Quick ranges | Today, Yesterday, 7 days, 30 days, This month, Last month, This year (feeds and profiles; chat keeps its four), as 36 px chips that scroll sideways | One tap for the common cases |
+| Condition | On · Before · After · Between, as a full-width segmented pill control (elevated active thumb in a soft track) | Nothing from the computer picker is lost, and the active mode reads clearly on phones |
+| Quick ranges | Today, Yesterday, 7 days, 30 days, This month, Last month, This year (feeds and profiles; chat keeps its four), as 34 px outlined chips that scroll sideways | One tap for the common cases |
+| Month & year jump bar | Dedicated `[ Month ▾ ]` and `[ Year ▾ ]` dropdown pills right above the weekday row (synced live as you scroll), plus a `Today` jump pill whenever you are viewing another month. Sticky month headings also carry a `▾` caret | Makes changing the month or year unmistakable in one tap, without hunting for hidden text links |
 | Calendar | One fixed weekday row, then months stacked in a vertical scroll ending at the current month. Older months load as you scroll up (back to the earliest available month, or June 2005). Each month's title sticks while its days are on screen | Scrolling replaces the small arrows, as Android's range picker does. A history filter mostly looks back, so the list ends at today |
-| Jump | Tapping a month title opens a year grid, then a month grid (48 px options), with Back | Years back in two taps instead of dozens of swipes |
-| Days | 44 px cells (Apple's minimum touch target). The selected day is a 40 px circle, a range is a continuous band between its endpoints, today is the accent colour, unavailable days are dimmed, and days with saved messages keep their dot | Touch size, plus the same meaning as on computers |
-| Footer | The instruction or selection on its own line ("Choose a start date", "Sep 28 → Oct 3"), then Clear and a full-width Apply, 44 px tall | The action is always in the same place. Apply stays disabled until the choice is valid |
+| Jump choosers | Tapping `[ Month ▾ ]` opens the 3×4 month tile grid directly (with out-of-range future months disabled); tapping `[ Year ▾ ]` or a month heading opens the 4-column year tile grid, then the month grid. The jump bar stays visible with the active pill highlighted and its caret flipped up, plus Back | Years or months back in one or two taps, with clear button affordances |
+| Days | 44 px cells (Apple's minimum touch target). The selected day is a 40 px circle, a range is a continuous band between its endpoints, today has a crisp accent ring, unavailable days are dimmed, and days with saved messages keep their dot | Touch size, plus unmistakable visual feedback for today, selection, and unavailable days |
+| Footer | Interactive selection slots (`Start` → `End` in Between mode, or a single mode slot) highlight whichever tap comes next (`Tap a day`) and jump back to a picked date's month on tap; below sit Clear and a full-width 44 px Apply | Always shows what tapping a day will set, and Apply stays disabled until the choice is valid |
 | Dismiss | Close, the backdrop or Escape, without applying | Choices apply only with Apply, as on computers |
 
 Computers keep the existing popover unchanged.
