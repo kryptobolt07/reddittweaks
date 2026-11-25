@@ -65,7 +65,7 @@ Reddit's chat can only scroll back through what it has already loaded. Reddit Tw
 
 Reddit decides when videos play and how loud. With Reddit Tweaks, you do:
 
-- **How things start:** Reddit's default, autoplay muted, preview on hover (on phones, preview the one you stop on), or only when you press Play. Reddit videos, GIFs and embedded players (YouTube, Vimeo, Streamable, RedGIFs, Twitch and more) each get their own setting.
+- **How things start:** Reddit's default, autoplay muted, preview on hover (on phones, preview the one you stop on), or only when you press Play. Reddit videos, GIFs and players embedded from other sites each get their own setting.
 - **What a click does:** play in place, open the post, or go full screen, with or without sound.
 - **Seamless post transition:** a playing video carries on into its post at the same moment, instead of restarting.
 - **Post opened directly:** when you open a post's link, its video can start muted, with sound, or wait for Play.

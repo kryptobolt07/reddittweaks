@@ -232,7 +232,7 @@
 
         <div class="setting-row">
           <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M7.9 12.1a.9.9 0 0 1 0-1.27l4.93-4.93a.9.9 0 0 1 1.27 1.27L9.17 12.1a.9.9 0 0 1-1.27 0ZM5.28 10.36l2.12-2.12 1.27 1.27-2.12 2.12a1.9 1.9 0 0 0 2.69 2.69l2.12-2.12 1.27 1.27-2.12 2.12a3.7 3.7 0 0 1-5.23-5.23Zm4.09-3.83 2.12-2.12a3.7 3.7 0 1 1 5.23 5.23l-2.12 2.12-1.27-1.27 2.12-2.12a1.9 1.9 0 1 0-2.69-2.69l-2.12 2.12Z"/></svg></span>
-          <div class="setting-copy"><label for="embed-start">Embedded players start</label><p id="embed-start-desc">Videos from sites such as YouTube, Vimeo, Streamable, and RedGIFs.</p></div>
+          <div class="setting-copy"><label for="embed-start">Embedded players start</label><p id="embed-start-desc">Videos from other sites embedded in Reddit posts.</p></div>
           <button id="embed-start" class="setting-choice" type="button" data-choice="embedStart" data-default="default" aria-haspopup="menu" aria-expanded="false" aria-controls="embed-start-menu" aria-describedby="embed-start-desc" disabled><span data-choice-value>Default</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
           <div id="embed-start-menu" class="setting-menu" role="menu" aria-label="Embedded players start" hidden>
             <button type="button" role="menuitemradio" data-value="default" data-short="Default" aria-checked="true">Provider Default</button>
@@ -285,7 +285,7 @@
           </div>
         </div>
 
-        <div class="setting-row" data-permission-hint="direct-embed-controls" data-permission-hint-text="Embeds from RedGIFs, Streamable and Twitch need">
+        <div class="setting-row" data-permission-hint="direct-embed-controls" data-permission-hint-text="Some embedded players need">
           <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M4.5 2A2.5 2.5 0 0 0 2 4.5v11A2.5 2.5 0 0 0 4.5 18h11a2.5 2.5 0 0 0 2.5-2.5v-4a.9.9 0 0 0-1.8 0v4a.7.7 0 0 1-.7.7h-11a.7.7 0 0 1-.7-.7v-11c0-.39.31-.7.7-.7h4a.9.9 0 0 0 0-1.8h-4Zm7.6 0a.9.9 0 0 0 0 1.8h2.83l-5.07 5.07a.9.9 0 1 0 1.27 1.27l5.07-5.07V7.9a.9.9 0 0 0 1.8 0V2.9a.9.9 0 0 0-.9-.9h-5ZM7.4 9.6v5.3a.55.55 0 0 0 .84.47l4.2-2.65a.55.55 0 0 0 0-.94L8.24 9.13a.55.55 0 0 0-.84.47Z"/></svg></span>
           <div class="setting-copy"><label for="video-direct-open">Post opened directly</label><p id="video-direct-open-desc">A post’s own video or embedded player when you open its link, a new tab, or reload. Posts opened from a feed keep their moment.</p></div>
           <button id="video-direct-open" class="setting-choice" type="button" data-choice="videoDirectOpen" data-default="default" aria-haspopup="menu" aria-expanded="false" aria-controls="video-direct-open-menu" aria-describedby="video-direct-open-desc" disabled><span data-choice-value>Default</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
@@ -313,7 +313,7 @@
         <div class="sub-heading" id="embed-controls-heading" hidden>Embed Controls</div>
         <div class="setting-row" id="direct-embed-row" hidden>
           <span class="tile" aria-hidden="true"><svg viewBox="0 0 20 20"><path d="M4 7H1v6h3l5 4V3L4 7Zm7 .8a3 3 0 0 1 0 4.4l1.2 1.2a4.7 4.7 0 0 0 0-6.8L11 7.8Zm2.4-2.4a6.5 6.5 0 0 1 0 9.2l1.2 1.2a8.2 8.2 0 0 0 0-11.6l-1.2 1.2Z"/></svg></span>
-          <div class="setting-copy"><label for="direct-embed-controls">Direct embed controls</label><p id="direct-embed-status" role="status">Allow in-place sound, controls and link blocking on embedded players: YouTube, Vimeo, Streamable, RedGIFs, Twitch, Dailymotion, TikTok and more.</p><button id="direct-embed-revoke" class="link-action" type="button" hidden>Revoke access</button></div>
+          <div class="setting-copy"><label for="direct-embed-controls">Direct embed controls</label><p id="direct-embed-status" role="status">Allow in-place sound, controls and link blocking on video players embedded in Reddit posts.</p><button id="direct-embed-revoke" class="link-action" type="button" hidden>Revoke access</button></div>
           <button id="direct-embed-controls" class="permission-action" type="button" data-granted="false" aria-describedby="direct-embed-status">Grant access</button>
         </div>
 

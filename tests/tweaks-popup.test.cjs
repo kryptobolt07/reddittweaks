@@ -598,7 +598,7 @@ test('a grant made before the other embed providers were added stays on, and Gra
   await settle();
   const {document}=p.w,button=document.querySelector('#direct-embed-controls'),revoke=document.querySelector('#direct-embed-revoke');
   assert.equal(button.textContent,'Grant access');assert.equal(button.dataset.granted,'true');assert.equal(button.dataset.partial,'true');
-  assert.match(document.querySelector('#direct-embed-status').textContent,/^Granted for Vimeo, Streamable, RedGIFs and Twitch\. YouTube, Dailymotion and \d+ more need one more Grant access\.$/);
+  assert.match(document.querySelector('#direct-embed-status').textContent,/^Granted for most embedded players\. Some others need one more Grant access\.$/);
   assert.equal(revoke.hidden,false);
   const blockRow=document.querySelector('#embed-block-links').closest('.setting-row');
   assert.equal(blockRow.classList.contains('is-inactive'),false,'options that need the grant stay on');

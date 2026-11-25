@@ -394,7 +394,6 @@ async function loadDirectEmbedControls(){
     const state=hosts.access?await hosts.access(api):{core:await api.permissions.contains({origins:hosts.origins}),hosts:[]};
     core=state.core;missing=hosts.missingProviders?hosts.missingProviders(state.hosts):[];
   };
-  const list=names=>names.length<=2?names.join(' and '):names.slice(0,2).join(', ')+' and '+(names.length-2)+' more';
   const paint=()=>{
     const partial=core && missing.length>0;
     button.textContent=core && !partial?'Revoke access':'Grant access';
@@ -405,7 +404,7 @@ async function loadDirectEmbedControls(){
     syncDependencies();syncSummary();settled();
   };
   const describe=()=>{
-    if(core && missing.length)status.textContent='Granted for Vimeo, Streamable, RedGIFs and Twitch. '+list(missing)+' need one more Grant access.';
+    if(core && missing.length)status.textContent='Granted for most embedded players. Some others need one more Grant access.';
     else if(core)status.textContent='Access granted for supported players.';
   };
   try{await read();if(core)await hosts.ensureScripts(api);}catch{}
@@ -720,7 +719,7 @@ function syncDependencies({skipSearch=false}={}){
     if(isDeviceHidden(row))continue;
     const {available,granted,partial,name}=permissionState(row.dataset.permissionHint);
     const control=row.querySelector('[data-setting], .setting-choice[data-choice]');
-    const lead=!available?'':!granted?(row.dataset.permissionHintText || 'Embeds from Vimeo, Streamable, RedGIFs and Twitch need'):partial?'Embeds from YouTube and other sites need':'';
+    const lead=!available?'':!granted?(row.dataset.permissionHintText || 'Some embedded players need'):partial?'Some other embedded players need':'';
     permissionNote(row,control,lead?lead+' ':'',name,'permission-hint');
   }
   // Graceful conflict handling: paused overrides preserve stored state without mutating it; scoped rules explain active cooperation.

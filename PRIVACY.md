@@ -22,7 +22,7 @@ Reddit Tweaks talks to Reddit the same way Reddit's own site does when you brows
 | **Use the archive** (off by default): restore deleted posts and comments, browse banned or private communities, find hidden activity | [Arctic Shift](https://arctic-shift.photon-reddit.com) | Usernames, community names, post and comment IDs and search words being looked up |
 | **Visual search** (off by default) | [infini.wtf](https://infini.wtf) | Your visual search words, links to public posts you search from, and images you choose to search with (resized, with metadata removed). Never your Reddit account or cookies |
 | **Raffles**, public draws only | [RedditRaffler](https://www.redditraffler.com) | The post link and the raffle rules you set |
-| **Direct embed controls** (asks for permission first) | The video sites already embedded on the page (YouTube, Vimeo, Streamable and others) | Nothing extra: it only lets the extension control players that are already loaded |
+| **Direct embed controls** (asks for permission first) | The video players already embedded in Reddit posts | Nothing extra: it only lets the extension control players that are already loaded |
 
 Downloads use your browser's own download manager.
 
