@@ -14,6 +14,8 @@ AMO submission handoff: unsigned add-on ZIP for Upload Version, and a separate s
 
 Follow-up: all 13 advisory dynamic-innerHTML sites were removed via tested safe DOM construction, rather than lint suppression. `lint:firefox` now uses --warnings-as-errors; the current 0.41.0 rebuild has errors=0, notices=0, warnings=0. The AMO upload and source archive were rebuilt together, retaining the same unpublished version.
 
-## Public comment stream skipped on Firefox (2026-11-25)
+## Public comment stream on Firefox (2026-11-25)
 
-Profiles merge a signed-out comment stream in Chrome. Firefox can't make that read (no credentialless frames; Reddit's image and page hosts answer CORS only for www.reddit.com), so every profile load showed "Public comments: … unavailable" or "Reddit is blocking logged-out search". The stream is now skipped on Firefox (detected by `browser.runtime.getBrowserInfo`); comments Reddit hides from a profile are then not added there. Not verified in Firefox.
+Profiles merge a cookie-free Reddit comment search ("public" stream) so comments Reddit hides from the signed-in profile view still appear. Reddit often refuses a cookie-free request: HTTP 403, or a redirect that a `redirect: 'error'` fetch reports as a network error. Chrome then reads the same search inside a `credentialless` iframe, a Chromium-only feature that gives a temporary signed-out Reddit session without touching the reader's cookies. Firefox has no equivalent, so a refusal there used to show "Public comments: …" network errors or "Reddit is blocking logged-out search" on every profile load.
+
+Firefox (detected by `browser.runtime.getBrowserInfo`) still tries the plain request; when Reddit refuses, it is quiet (no error, no note) and not tried again for 10 minutes. Not verified in Firefox.

@@ -47,10 +47,11 @@
   // These bounds only stop a runaway walk, and stopping at one is reported as incomplete.
   const removedItemBound=20000,removedVisitorPages=1000,removedHistoryPages=500;
   const publicBlockMs=600000,publicBlockedNote='Some comments may be missing · Reddit is blocking logged-out search';
-  // Firefox can't make the signed-out read the public comment stream needs (no credentialless frames, and Reddit refuses
-  // or the browser blocks the extension's own signed-out request), so that stream is skipped there instead of failing
-  // with a network error or the blocked note every time the profile reloads (docs/firefox-build-spec.md).
-  const publicStreamSupported=!globalThis.browser?.runtime?.getBrowserInfo;
+  // The public comment stream is a cookie-free Reddit search. Reddit often refuses those (HTTP 403, or a redirect the
+  // request treats as a network error); Chrome then reads the same search in a credentialless frame, which Firefox
+  // doesn't have. Firefox still tries the plain request, but a refusal there is quiet: no error, no note, and no new
+  // attempt for a while (docs/firefox-build-spec.md).
+  const quietPublicStream=Boolean(globalThis.browser?.runtime?.getBrowserInfo);
   // Viewed-posts History (docs/viewed-history-spec.md): above Reddit's own 20, your History tab is drawn by the extension.
   let viewedHistoryOn=false;
   function historySectionRoute(username,search,ownName){
@@ -2813,7 +2814,7 @@
       finally{if(generation===this.generation){this.busy=false;this.host.removeAttribute('aria-busy');this.more.disabled=false;if(this.feed){this.batchAutoPaused=this.primaryFailure();this.updateProfileLoading();this.updateActivityEmptyState();}else this.loading.hidden=true;this.discover.disabled=this.archiveBusy;if(this.archiveButton)this.archiveButton.disabled=this.archiveBusy;this.ensureActivityArchive();}}
     }
     loadReddit({more=false,retry=false,keys=null,force=false}={}){if(this.isOwnList())return;if(this.isSearch() && !this.clientSearchOn())return;if(this.busy)return this.redditRun;if(force)this.publicBlockedUntil=0;if(!more && !retry){this.initialPrefetchDone=false;this.pages=0;this.recoveryChecked.clear();this.sourceErrors={};this.sourceNotices={};this.clearSourceRetries(key=>!key.startsWith('archive-'));this.refreshStatuses();}if(retry && !keys)this.clearSourceRetries(key=>!key.startsWith('archive-') && !['recovery','replies','verify'].includes(key));if(this.archiveOnly)return this.loadArchive({more});if(this.nativeBatch?.blocked){this.nativeBatch.blocked=false;this.nativeBatch.serverRetryAt=0;this.drainNative(this.nativeBatch);}
-      const frontier=this.publicationFloor(),blockedOverview=this.blockedOverviewStream(),streams=[...(blockedOverview?['overview']:this.kinds()).flatMap(kind=>this.blockedProfile?[{kind,key:kind,stream:'blocked'}]:kind==='comment' && !this.isSearch()?[{kind,key:'comment',stream:'authenticated'},...(publicStreamSupported?[{kind,key:'comment-public',stream:'public'}]:[])]:[{kind,key:kind}]),...this.blockedHiddenStreams()]      .filter(({key})=>{if(key!=='comment-public' || !(this.publicBlockedUntil>Date.now()))return true;this.sourceNotices[key]=publicBlockedNote;this.redMore[key]=false;return false;})
+      const frontier=this.publicationFloor(),blockedOverview=this.blockedOverviewStream(),streams=[...(blockedOverview?['overview']:this.kinds()).flatMap(kind=>this.blockedProfile?[{kind,key:kind,stream:'blocked'}]:kind==='comment' && !this.isSearch()?[{kind,key:'comment',stream:'authenticated'},{kind,key:'comment-public',stream:'public'}]:[{kind,key:kind}]),...this.blockedHiddenStreams()]      .filter(({key})=>{if(key!=='comment-public' || !(this.publicBlockedUntil>Date.now()))return true;if(!quietPublicStream)this.sourceNotices[key]=publicBlockedNote;this.redMore[key]=false;return false;})
       .filter(({key})=>retry?(keys?keys.includes(key):Boolean(this.sourceErrors[key])):!more || this.redMore[key] && (this.context.sort!=='new' || (this.sourceFrontiers.get(key)?.floor ?? Infinity)>=frontier));
       for(const {key} of streams){if(!more && !retry)this.sourceFrontiers.delete(key);this.sourcePending.add(key);this.sourceStartedAt.set(key,Date.now());}
       if(streams.length)this.scheduleGate(this.sourceWaitMs);
@@ -2864,7 +2865,7 @@
           }
           this.afterByKind[key]=result.after;this.redMore[key]=Boolean(result.hasMore && result.after && result.after!==old);this.noteSourcePage(key,page,this.redMore[key]);succeeded=true;this.loaded=true;delete this.sourceErrors[key];this.clearSourceRetries(name=>name===key);this.moreReddit=Object.values(this.redMore).some(Boolean);this.render();
         }catch(error){if(!current())return;this.redMore[key]=false;this.noteSourcePage(key,[],false);
-          if(stream==='public' && /\(HTTP 403\)/.test(error.message)){this.publicBlockedUntil=Date.now()+publicBlockMs;this.sourceNotices[key]=publicBlockedNote;return;}
+          if(stream==='public' && (quietPublicStream || /\(HTTP 403\)/.test(error.message))){this.publicBlockedUntil=Date.now()+publicBlockMs;if(!quietPublicStream)this.sourceNotices[key]=publicBlockedNote;return;}
           if(this.scheduleSourceRetry(key,error,'reddit'))return;
           this.sourceErrors[key]=error.message;errors.push((stream==='public'?'Public comments: ':kind==='overview'?'':kind==='comment'?'Comments: ':'Posts: ')+error.message);}
         finally{if(current()){this.sourcePending.delete(key);this.sourceStartedAt.delete(key);}}
