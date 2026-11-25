@@ -44,6 +44,26 @@ test('broker serializes simultaneous directory fetches, persists the lease acros
   assert.ok(published.ok);assert.equal(published.entry.records[0].text,undefined);assert.equal(published.entry.records[0].token,undefined);assert.equal(published.entry.records[0].element,undefined);
   assert.ok((await cache.send({action:'acquire',owner},cache.sender(2))).entry);
 });
+test('directory lease renew and release use only session state',async()=>{
+  const cache=broker(),lease=await cache.send({action:'acquire',owner});
+  let directoryReads=0;const get=cache.local.get;
+  cache.local.get=async keys=>{directoryReads++;return get(keys);};
+  assert.equal((await cache.send({action:'renew',owner,token:lease.token})).renewed,true);
+  assert.equal((await cache.send({action:'release',owner,token:lease.token},cache.sender(2))).ok,false);
+  assert.equal((await cache.send({action:'release',owner,token:lease.token})).released,true);
+  assert.equal(directoryReads,0);
+});
+test('simultaneous chat backfills have one lease holder and detach releases it across worker restarts',async()=>{
+  const cache=broker();
+  const backfill=(tab,op='acquire',token)=>cache.send({scope:'rcs-messages',action:'backfill-lease',owner,op,token},{...cache.sender(tab),url:'https://www.reddit.com/chat/'});
+  const [first,second]=await Promise.all([backfill(1),backfill(2)]);
+  assert.ok(first.token);assert.equal(second.busy,true);
+  cache.start();assert.equal((await backfill(2)).busy,true);
+  assert.equal((await backfill(2,'renew',first.token)).expired,true);
+  assert.equal((await backfill(1,'renew',first.token)).renewed,true);
+  await cache.send({action:'detach',owner},cache.sender(1));
+  assert.ok((await backfill(2)).token);
+});
 test('saved directory survives a new tab, issues no Reddit reads, and can open an uncached native room',async t=>{
   const cache=broker();const first=environment(cache);t.after(()=>first.dom.window.close());const records=await first.W.RCSDirectory.load().promise;
   assert.equal(records.length,7);assert.ok(first.api.calls.some(call=>call.method==='rooms' && call.options.page_size===200));first.dom.window.close();

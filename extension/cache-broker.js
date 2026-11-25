@@ -13,6 +13,12 @@ const scopedRecentPrefix='rt-recent-v1:';
 // A server hint or a page script can never block directory requests for longer than this.
 const maxCooldownMs=3600000;
 let queue=Promise.resolve();
+let backfillLeaseQueue=Promise.resolve();
+function withBackfillLeases(work) {
+  const result=backfillLeaseQueue.then(work);
+  backfillLeaseQueue=result.catch(()=>{});
+  return result;
+}
 chrome.storage.local.setAccessLevel?.({accessLevel:'TRUSTED_CONTEXTS'});
 // The action opens as a tab in some phone browsers. Match the actual popup document in either host.
 const isPopup=sender=>(sender.frameId ?? 0)===0 && sender.url?.split(/[?#]/,1)[0]===chrome.runtime.getURL('popup.html');
@@ -41,8 +47,11 @@ async function handle(message,sender) {
     if(!isPopup(sender))throw Error('Open the extension popup to clear the cache.');
     const all=await chrome.storage.local.get(null);
     await chrome.storage.local.remove(Object.keys(all).filter(key=>key.startsWith(cachePrefix)||key.startsWith(oldPrefix)||key.startsWith(cooldownPrefix)));
-    const session=await chrome.storage.session.get(null);
-    await chrome.storage.session.remove(Object.keys(session).filter(key=>key.startsWith(leasePrefix)||key.startsWith(backfillLeasePrefix)||key.startsWith(sessionPrefix)));
+    const session=await withBackfillLeases(async()=>{
+      const saved=await chrome.storage.session.get(null);
+      await chrome.storage.session.remove(Object.keys(saved).filter(key=>key.startsWith(leasePrefix)||key.startsWith(backfillLeasePrefix)||key.startsWith(sessionPrefix)));
+      return saved;
+    });
     // Traffic state keeps a session copy of the cooldown; clearing must end a lockout but not live permits.
     const traffic={};for(const key of Object.keys(session))if(key.startsWith(trafficPrefix))traffic[key]={...session[key],cooldownUntil:0};
     if(Object.keys(traffic).length)await chrome.storage.session.set(traffic);
@@ -54,9 +63,12 @@ async function handle(message,sender) {
   const now=Date.now();
   if(message.action==='detach') {
     const leaseKey=leasePrefix+owner,backfillKey=backfillLeasePrefix+owner,trafficKey=trafficPrefix+owner;
-    const saved=await chrome.storage.session.get([leaseKey,backfillKey,trafficKey]);
+    const saved=await withBackfillLeases(async()=>{
+      const current=await chrome.storage.session.get([leaseKey,backfillKey,trafficKey]);
+      if(current[backfillKey]?.holder===holder)await chrome.storage.session.remove(backfillKey);
+      return current;
+    });
     if(saved[leaseKey]?.holder===holder)await chrome.storage.session.remove(leaseKey);
-    if(saved[backfillKey]?.holder===holder)await chrome.storage.session.remove(backfillKey);
     if(saved[trafficKey])await chrome.storage.session.set({[trafficKey]:{...saved[trafficKey],permits:saved[trafficKey].permits.filter(p=>p.holder!==holder)}});
     return {detached:true};
   }
@@ -91,6 +103,12 @@ async function handle(message,sender) {
     await chrome.storage.session.set({[key]:traffic});return {cooldownUntil:traffic.cooldownUntil};
   }
   const key=cachePrefix+owner,leaseKey=leasePrefix+owner,sessionKey=sessionPrefix+owner;
+  if(message.action==='renew' || message.action==='release'){
+    const lease=(await chrome.storage.session.get(leaseKey))[leaseKey];
+    if(!lease || lease.token!==message.token || lease.holder!==holder || !(lease.expires>now))throw Error('Directory update expired. Please retry.');
+    if(message.action==='release'){await chrome.storage.session.remove(leaseKey);return {released:true};}
+    await chrome.storage.session.set({[leaseKey]:{...lease,expires:now+90000}});return {renewed:true};
+  }
   const stored=await chrome.storage.session.get([leaseKey,sessionKey]);
   const lease=stored[leaseKey],session=stored[sessionKey] || {};
   const entry=await entryFor(owner);
@@ -124,9 +142,6 @@ async function handle(message,sender) {
     return {...reply,token};
   }
   if(!owns)throw Error('Directory update expired. Please retry.');
-  if(message.action==='renew') {
-    await chrome.storage.session.set({[leaseKey]:{...lease,expires:now+90000}});return {renewed:true};
-  }
   if(message.action==='publish' || message.action==='checkpoint') {
     if(!await chatSearchEnabled()) {
       if(message.action==='publish')await chrome.storage.session.remove(leaseKey);
@@ -152,7 +167,6 @@ async function handle(message,sender) {
     if(message.action==='publish')await chrome.storage.session.remove(leaseKey);
     return {entry:Model.view(saved),verifiedAt:complete ? now : reply.verifiedAt};
   }
-  if(message.action==='release') {await chrome.storage.session.remove(leaseKey);return {released:true};}
   throw Error('Unknown cache operation');
 }
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{
@@ -278,7 +292,7 @@ async function handleMessages(message,sender) {
   }
   if(message.action==='stats' && popup)return message.owner?messages.stats(message.owner,{committed:true}):globalMessageStats();
   if(!RCSMessageStore.ownerOK(message.owner))throw Error('Invalid account');
-  if(message.action==='backfill-lease')return handleBackfillLease(message,sender);
+  if(message.action==='backfill-lease')return withBackfillLeases(()=>handleBackfillLease(message,sender));
   if(message.action==='coverage')return messages.coverage(message.owner,message.roomIds);
   if(message.action==='mark-inaccessible'){if(!await chatSearchEnabled())return {disabled:true};const result=await messages.markInaccessible(message.owner,message.roomId,message.status);await notifyMessageTabs(message.owner,false,[message.roomId],true);return result;}
   if(message.action==='update-heads'){if(!await chatSearchEnabled())return {disabled:true};return messages.updateHeads(message.owner,message.heads);}
