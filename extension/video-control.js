@@ -6,7 +6,7 @@
 (() => {
  'use strict';
  if(globalThis.RTVideoControl || window.top!==window)return;
- const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,HOVER_MS=300,LEAVE_MS=250,FADE_MS=200,IN_VIEW=0.6,DWELL_MS=600,AUTOPLAY_MS=150,PROBE_MS=2500,HOLD_2X_MOUSE_MS=300,HOLD_2X_TOUCH_MS=350,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000,CONTINUE_KEY='rt-video-continue-v1',CONTINUE_MS=12000,VOLUME_KEY='rt-video-volume-v1',DIRECT_PREPARE_MS=1500,DIRECT_TRIAL_MS=250,HELLO_MS=3500,PLAY_SETTLE_MS=1500,EMBED_TRIAL_MS=1500,PREVIEW_STALL_MS=4000;
+ const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,HOVER_MS=300,LEAVE_MS=250,FADE_MS=200,IN_VIEW=0.6,DWELL_MS=600,AUTOPLAY_MS=150,PROBE_MS=2500,HOLD_2X_MOUSE_MS=300,HOLD_2X_TOUCH_MS=350,HOLD_PREVIEW_MS=300,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000,CONTINUE_KEY='rt-video-continue-v1',CONTINUE_MS=12000,VOLUME_KEY='rt-video-volume-v1',DIRECT_PREPARE_MS=1500,DIRECT_TRIAL_MS=250,HELLO_MS=3500,PLAY_SETTLE_MS=1500,EMBED_TRIAL_MS=1500,PREVIEW_STALL_MS=4000;
  const COMMENT='shreddit-comment',MEDIA_NODES=PLAYERS+', '+COMMENT+' video';
  const commentOf=node=>node?.closest?.(COMMENT);
  const closedThread=node=>Boolean(commentOf(node) && node.closest('shreddit-comment[collapsed],details:not([open]),[hidden], [inert]'));
@@ -286,6 +286,7 @@
     if(this.directEmbed)this.directEmbedGesture(event,path);
     if(event.type==='pointerdown'){
      if(this.holdFor2x)this.startHold2x(event,path);
+     if(event.pointerType==='touch' || event.pointerType==='pen')this.startHoldPreview(event,path);
      return;
     }
     if(event.type==='click' && event.button===0){
@@ -314,11 +315,13 @@
    };
    this.onPointerMove=event=>{
     if(event.pointerType==='mouse')this.pointer={x:event.clientX,y:event.clientY};
+    const held=this.holdPreview;
+    if(held && !held.engaged && Math.hypot(event.clientX-held.x,event.clientY-held.y)>10)this.endHoldPreview(false);
     if(!this.hold2x || this.hold2x.engaged)return;
     if(Math.hypot(event.clientX-this.hold2x.x,event.clientY-this.hold2x.y)>10)this.endHold2x(false);
    };
-   this.onPointerEnd=event=>this.endHold2x(event.type==='pointerup');
-   this.onContextMenu=event=>{if(this.hold2x?.engaged)event.preventDefault();};
+   this.onPointerEnd=event=>{this.endHold2x(event.type==='pointerup');this.endHoldPreview(event.type==='pointerup');};
+   this.onContextMenu=event=>{if(this.hold2x?.engaged || this.holdPreview)event.preventDefault();};
    this.onHover=event=>this.hover(event);
    this.onTabVisibility=()=>{
     if(this.doc.hidden){this.stopHover();this.endHold2x(false);for(const player of [...this.loops.keys()])this.stopLoop(player);return;}
@@ -343,7 +346,7 @@
     if(!embed || !link || !this.blockEmbedLinks(!this.isDetailEmbed(embed)))return;
     if(/^https?:/.test(link.href) && new URL(link.href).origin!==this.win.location.origin){event.preventDefault();event.stopImmediatePropagation();}
    };
-   this.onRoute=()=>{this.hideSoundPrompt();this.stopHover();this.endHold2x(false);this.exitMini(false);this.handoff();this.adoptResultOpen();this.win.setTimeout(()=>this.directPlayer(),0);this.queueLeftBehind();};
+   this.onRoute=()=>{this.hideSoundPrompt();this.endHoldPreview(false);this.stopHover();this.endHold2x(false);this.exitMini(false);this.handoff();this.adoptResultOpen();this.win.setTimeout(()=>this.directPlayer(),0);this.queueLeftBehind();};
    this.onBack=()=>{this.stopHover();this.endHold2x(false);this.exitMini(false);this.clearHandoff();this.clearEmbedHandoff();this.directPlayer();};
    this.onMiniDismissed=event=>{
     const node=event.target;
@@ -731,6 +734,33 @@
    },isTouch?HOLD_2X_TOUCH_MS:HOLD_2X_MOUSE_MS);
    this.hold2x=state;
   }
+  // Search Media tab on touch: pressing and holding a clip plays it, muted, while the finger stays down; lifting stops
+  // it again unless it was already previewing. A finger that moves first is a scroll and cancels the hold.
+  startHoldPreview(event,path){
+   this.endHoldPreview(false);
+   if(event.button>0 || event.isPrimary===false || !this.touch || this.pending?.held || this.embedPending?.held)return;
+   const player=path.find(node=>node.matches?.(MEDIA_NODES));
+   if(!player || player.getAttribute('player-type')!==SEARCH_PLAYER || !player.closest?.(SEARCH_TILE) || closedThread(player))return;
+   // Only the player's own sliders and sound button are excluded: the tile's link and the big Play button wrap the clip.
+   if(path.slice(0,path.indexOf(player)).some(node=>node.matches?.(SOUND_CONTROL+',input,[role="slider"],vds-time-slider,media-time-range')))return;
+   const video=this.video(player);
+   const state={player,x:event.clientX,y:event.clientY,engaged:false,keep:Boolean(video && !video.paused),timer:0};
+   state.timer=this.win.setTimeout(()=>{
+    if(this.holdPreview!==state || this.dead || !player.isConnected)return;
+    state.engaged=true;
+    if(state.keep)return;
+    this.stopHover();this.hovered=player;this.viewing=false;
+    if(!this.startPreview(player))state.keep=true;
+   },HOLD_PREVIEW_MS);
+   this.holdPreview=state;
+  }
+  endHoldPreview(released=false){
+   const state=this.holdPreview;if(!state)return;
+   this.holdPreview=null;this.win.clearTimeout(state.timer);
+   if(!state.engaged)return;
+   if(released)this.suppressClickUntil=performance.now()+500;
+   if(!state.keep && this.hovered===state.player)this.stopHover();
+  }
   endHold2x(swallowClick=false){
    if(!this.hold2x)return;
    const h=this.hold2x;this.hold2x=null;
@@ -1032,7 +1062,22 @@
    preview.requested=true;
    this.play(player,preview.video)?.catch?.(()=>{
     if(this.previews.get(player)===preview && preview.active)this.stopHover();
+    this.retryOnActivation();
    });
+  }
+  // Some phone browsers (Firefox for Android among them) refuse even muted autoplay until the page has had a tap. The
+  // preview that was refused is tried again on the reader's next tap or key press, instead of waiting for a video to be
+  // played by hand.
+  retryOnActivation(){
+   if(this.activationRetry || this.dead || this.win.navigator?.userActivation?.hasBeenActive===true)return;
+   const retry=()=>{
+    for(const type of ['pointerup','keydown'])this.win.removeEventListener(type,retry,true);
+    this.activationRetry=null;
+    if(this.dead || !this.active)return;
+    this.win.setTimeout(()=>{if(this.touch)this.pickInView(true);else this.recheckPointer();},0);
+   };
+   this.activationRetry=retry;
+   for(const type of ['pointerup','keydown'])this.win.addEventListener(type,retry,true);
   }
   stopHover(){
    this.stopEmbed();

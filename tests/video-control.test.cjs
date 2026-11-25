@@ -2234,3 +2234,22 @@ test('embed stills fall back to /svc/shreddit/partial-feed-post when .json retur
  assert.equal(urls.filter(u=>u.includes('.json')).length,1,'switches directly to partial endpoint after .json refusal');
  assert.ok(urls.some(u=>u.includes('/svc/shreddit/partial-feed-post/t3_second')));
 });
+test('Media search tab on touch: press and hold plays a clip while held, lifting stops it and is not a tap',async t=>{
+ const p=page(t);searchTile(p);phone(p);
+ const controller=await hoverController(p,{videoStart:'play'});
+ const down=(x=50)=>{const ev=new p.W.MouseEvent('pointerdown',{bubbles:true,composed:true,button:0,clientX:x,clientY:150});Object.defineProperty(ev,'pointerType',{value:'touch'});p.video.dispatchEvent(ev);};
+ // A moving finger is a scroll.
+ down();p.d.dispatchEvent(new p.W.MouseEvent('pointermove',{bubbles:true,clientX:90,clientY:150}));
+ await new Promise(r=>setTimeout(r,340));
+ assert.equal(p.video.paused,true,'a scroll starts nothing');
+ p.W.dispatchEvent(new p.W.MouseEvent('pointerup',{bubbles:true}));
+ down();await new Promise(r=>setTimeout(r,340));await flush();
+ assert.equal(p.video.paused,false,'held clip plays even with Only when I press Play');assert.equal(p.video.muted,true);
+ const ctx=new p.W.Event('contextmenu',{bubbles:true,cancelable:true,composed:true});p.video.dispatchEvent(ctx);
+ assert.equal(ctx.defaultPrevented,true,'no long-press menu');
+ p.W.dispatchEvent(new p.W.MouseEvent('pointerup',{bubbles:true}));
+ assert.equal(p.video.paused,true,'lifting stops it');
+ assert.equal(controller.hovered,null);
+ const click=new p.W.MouseEvent('click',{bubbles:true,cancelable:true,composed:true,button:0});p.video.dispatchEvent(click);
+ assert.equal(click.defaultPrevented,true,'the click that ends a hold is swallowed');
+});
