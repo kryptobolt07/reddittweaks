@@ -1,3 +1,11 @@
+# 0.67.1 preview
+
+- **Chat:** release detached chat interface elements and Matrix listeners, reduce work on native thread updates, and grant one background history lease per account across tabs.
+- **Large conversations:** read saved messages in bounded batches, release durable-only records when the room search closes, and score each relevance match once. An open search can still hold a whole room's searchable records. Verified history and recovery also depend on native raw events.
+- **Archives and profiles:** retired archive views stop retrying, paging keeps focus on existing results, and scrolling and profile reconciliation use fewer DOM searches while preserving reading position.
+- **Media and history:** cap video poster misses and keep the Visual Search timeout active through response reads. Reduce repeated work in Viewed History, community icon lookups, archive memo reads, and settings updates.
+- **Patch increment:** performance and reliability improvements to existing features. Browser coverage uses synthetic fixtures at desktop and phone widths. Signed-in Reddit timing and heap usage require separate measurement.
+
 # 0.67.0 preview
 
 - **Filters keep your place:** changing or clearing a filter on a profile or community feed keeps Sort & filter where it was on screen, or goes back to it if you had scrolled past, instead of leaving you deep inside the unfiltered feed. A sparse profile filter no longer moves the page up and down while it loads.
