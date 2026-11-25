@@ -2409,3 +2409,40 @@ test('leaving Old on a Hot profile leaves no archived filler under Reddit\'s Hot
   next=W.RTFeedFilters.clone(d.rtFilters);next.sort=null;d.setFilters(next);await new Promise(r=>setTimeout(r,30));
   assert.equal(d.renderedPosts.length,0,'Hot keeps Reddit\'s own ranking');
 });
+
+test('leaving a filtered profile for a post and clicking Back restores the parked feed and anchored card scroll',async t=>{
+  const {W,d}=setup(t,{url:'https://www.reddit.com/user/Example/',settings:{postDiscovery:true,archiveDiscovery:true}});
+  await d.ready;await new Promise(r=>setTimeout(r,20));
+  let curScrollY=0;
+  Object.defineProperty(W,'scrollY',{configurable:true,get:()=>curScrollY});
+  W.scrollTo=(a,b)=>{curScrollY=typeof a==='object'?a.top:b;};
+  d.activityFilter='deleted';
+  const card=W.document.createElement('article');card.dataset.rtUi='activity-item';
+  let cardTop=220;
+  card.getBoundingClientRect=()=>({top:cardTop,bottom:cardTop+140,left:0,right:400,width:400,height:140});
+  d.feed.append(card);
+  curScrollY=1200;W.dispatchEvent(new W.Event('scroll'));
+  card.dispatchEvent(new W.MouseEvent('click',{bubbles:true,button:0}));
+  // Navigate to a post (detaching the profile feed).
+  const oldFeed=d.feed;
+  W.RTThreadRestore={};
+  W.history.pushState({},'','/r/test/comments/abc123/example/');
+  oldFeed.remove();
+  d.scan();
+  assert.equal(d.parked.has(oldFeed),true,'profile feed is parked on post navigation');
+  const parkedState=d.parked.get(oldFeed);
+  assert.equal(parkedState.handoffScrollY,1200,'scrollY is saved when leaving for a post');
+  assert.equal(parkedState.handoffAnchor?.node,card,'clicked card is captured as scroll anchor');
+  // Simulate Back navigation with a replacement feed and shifted card height (as when further results load above).
+  curScrollY=0;
+  const freshFeed=W.document.createElement('shreddit-feed');
+  W.document.querySelector('main').append(freshFeed);
+  W.history.back();
+  W.history.replaceState({},'','/user/Example/');
+  cardTop=1600;
+  d.onRoute({type:'popstate'});
+  d.scan();
+  assert.equal(d.feed,oldFeed,'parked feed is adopted on Back');
+  assert.equal(d.activityFilter,'deleted','activity filter survives Back');
+  assert.equal(curScrollY,1380,'scroll restores to keep the anchored card at its original viewport top even after layout shift');
+});
