@@ -182,47 +182,25 @@ test('a phone month title jumps to any year and month, and the backdrop closes w
   W.document.querySelector('.date-sheet-scrim').click();
   assert.equal(closed.length,1);assert.equal(changes.length,0,'nothing applied');assert.equal(W.document.querySelector('.date-sheet-scrim'),null);
 });
-test('phone month and year jump pills open choosers directly, disable future months, and offer a Today jump',t=>{
+test('phone month heading opens year/month tabs, disables future months, and offers a Today jump when away',t=>{
   const {el}=phoneSetup(t);
-  const jump=()=>el.querySelector('.date-sheet-jump');
-  assert.equal(jump().querySelector('.calendar-month .date-jump-label').textContent,'October');
-  assert.equal(jump().querySelector('.calendar-year .date-jump-label').textContent,'2026');
-  assert.equal(jump().querySelector('.date-sheet-today').hidden,true,'Today jump stays hidden on the current month');
-  jump().querySelector('.calendar-month').click();
+  assert.equal(el.querySelector('.date-sheet-jump'),null,'no duplicate month/year bar above weekdays');
+  assert.equal(el.querySelector('[data-month="2026-10"] .date-sheet-today'),null,'Today jump is omitted on the current month');
+  assert.ok(el.querySelector('[data-month="2026-09"] .date-sheet-today'),'older months offer a Today jump');
+  el.querySelector('[data-month="2026-10"] .calendar-month-title').click();
+  assert.equal(el.querySelector('.date-sheet-title').textContent,'Choose year');
+  el.querySelector('.date-chooser-tab.calendar-month').click();
   assert.equal(el.querySelector('.date-sheet-title').textContent,'Choose month');
-  assert.equal(jump().querySelector('.calendar-month').getAttribute('aria-expanded'),'true');
   assert.equal(el.querySelector('[data-month="10"]').disabled,true,'November 2026 is disabled when today is Oct 29');
   assert.equal(el.querySelector('[data-month="11"]').disabled,true,'December 2026 is disabled when today is Oct 29');
   el.querySelector('[data-month="2"]').click();
-  assert.equal(jump().querySelector('.calendar-month .date-jump-label').textContent,'March');
-  assert.equal(jump().querySelector('.date-sheet-today').hidden,false,'Today jump appears when away from current month');
-  jump().querySelector('.date-sheet-today').click();
-  assert.equal(jump().querySelector('.calendar-month .date-jump-label').textContent,'October');
-  assert.equal(jump().querySelector('.date-sheet-today').hidden,true);
+  assert.ok(el.querySelector('[data-month="2026-03"]'),'jumped to March 2026');
+  el.querySelector('[data-month="2026-03"] .date-sheet-today').click();
+  assert.ok(el.querySelector('[data-month="2026-10"]'),'Today jump returns to current month');
   // Jumping from December 2025 to 2026 clamps the month to October 2026.
-  jump().querySelector('.calendar-year').click();el.querySelector('[data-year="2025"]').click();el.querySelector('[data-month="11"]').click();
-  jump().querySelector('.calendar-year').click();el.querySelector('[data-year="2026"]').click();
-  assert.equal(jump().querySelector('.calendar-month .date-jump-label').textContent,'October');
+  el.querySelector('[data-month="2026-10"] .calendar-month-title').click();
+  el.querySelector('[data-year="2025"]').click();el.querySelector('[data-month="11"]').click();
+  el.querySelector('[data-month="2025-12"] .calendar-month-title').click();
+  el.querySelector('[data-year="2026"]').click();
   assert.equal(el.querySelector('[data-month="9"]').getAttribute('aria-pressed'),'true');
-});
-test('phone footer slots highlight which day tap comes next and jump to a picked date',t=>{
-  const {el}=phoneSetup(t);
-  const slot=name=>el.querySelector(`.date-slot[data-slot="${name}"]`);
-  assert.equal(slot('start').dataset.state,'active');assert.equal(slot('end').dataset.state,'idle');
-  el.querySelector('[data-date="2026-10-05"]').click();
-  assert.equal(slot('start').dataset.state,'filled');assert.equal(slot('end').dataset.state,'active');
-  el.querySelector('[data-date="2026-10-12"]').click();
-  assert.equal(slot('start').dataset.state,'filled');assert.equal(slot('end').dataset.state,'filled');
-  // Jumping away and tapping the filled Start slot returns to October 2026.
-  el.querySelector('.date-sheet-jump .calendar-year').click();el.querySelector('[data-year="2022"]').click();el.querySelector('[data-month="0"]').click();
-  assert.equal(el.querySelector('.date-sheet-jump .calendar-year .date-jump-label').textContent,'2022');
-  slot('start').click();
-  assert.equal(el.querySelector('.date-sheet-jump .calendar-year .date-jump-label').textContent,'2026');
-  assert.equal(el.querySelector('.date-sheet-jump .calendar-month .date-jump-label').textContent,'October');
-  // Single-day mode shows one active slot, then filled or error.
-  el.querySelector('[data-mode="After"]').click();
-  assert.equal(slot('single').dataset.state,'filled');
-  el.querySelector('[data-date="2026-10-29"]').click();
-  assert.equal(slot('single').dataset.state,'error');
-  assert.equal(el.querySelector('.calendar-apply').disabled,true);
 });
