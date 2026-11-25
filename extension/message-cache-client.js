@@ -210,7 +210,7 @@
   window.addEventListener('pagehide',event=>{if(!event.persisted){clearTimeout(dimensionTimer);for(const item of dimensionPatches.values())item.resolve({changed:false});dimensionPatches.clear();}});
   globalThis.RCSMessages=Object.freeze({getSelfIdentity:()=>selfIdentity?.id===owner?{...selfIdentity}:null,ready:()=>read('stats',{},true),search:parameters=>read('search',parameters),room:roomId=>read('room',{roomId}),stats:()=>read('stats'),summaries:()=>read('summaries'),coverage:roomIds=>read('coverage',{...(roomIds?{roomIds}:{})}),markInaccessible:(roomId,status)=>read('mark-inaccessible',{roomId,status}),updateHeads:heads=>read('update-heads',{heads}),backfillLease:(op,token)=>read('backfill-lease',{op,...(token?{token}:{})}),rememberImageDimensions,flush,setEnabled,isEnabled:()=>chatSearchEnabled,subscribe(listener){subscribers.add(listener);return()=>subscribers.delete(listener);}});
   if(runtime?.id && runtime.sendMessage){
-    Promise.resolve().then(()=>runtime.sendMessage({scope:'rt-posts',action:'get-settings'})).then(response=>{
+    (globalThis.RCSChatStartup?.getSettings?.() || Promise.resolve().then(()=>runtime.sendMessage({scope:'rt-posts',action:'get-settings'}))).then(response=>{
       if(response?.ok && response.settings?.chatSearch===false)setEnabled(false);
     },()=>{});
   }

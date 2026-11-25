@@ -82,7 +82,7 @@
   // Only chat elements or a floating-chat shell position: Reddit's posts and players also have shadow roots, and treating
   // every one as a candidate re-ran discovery on each batch of posts while scrolling (measured 2026-11-19).
   const candidate=node=>A.chatNode?A.chatNode(node):node.nodeType===1 && (node.localName?.startsWith('rs-') || node.matches?.('[data-testid="chat-room-list"]'));
-  function endDiscovery(){clearTimeout(discoveryTimer);documentObserver.disconnect();for(const observer of watched.values())observer.disconnect();watched.clear();document.removeEventListener('rcs-chat-present',wake);document.removeEventListener('rcs-chat-starting',wake);if(onSettingsMessage)try{chrome.runtime?.onMessage?.removeListener(onSettingsMessage);}catch{}}
+  function endDiscovery(){clearTimeout(discoveryTimer);documentObserver.disconnect();for(const observer of watched.values())observer.disconnect();watched.clear();document.removeEventListener('rcs-chat-present',wake);document.removeEventListener('rcs-chat-starting',wake);}
   function pruneRoots(){
     for(const [root,observer] of watched)if(!root.isConnected){
       observer.disconnect();watched.delete(root);
@@ -101,7 +101,18 @@
     if(roots.length && Date.now()<hydrationUntil)discoveryTimer=setTimeout(discover,100);
   }
   function wake(){if(used || queued)return;hydrationUntil=Date.now()+4500;queued=true;queueMicrotask(discover);}
-  let onSettingsMessage=null;
+  let onSettingsMessage=null,settingsRequest=null,settingsResponse=null;
+  function getSettings(){
+    if(settingsResponse)return Promise.resolve(settingsResponse);
+    if(!settingsRequest && globalThis.chrome?.runtime?.sendMessage){
+      settingsRequest=Promise.resolve().then(()=>chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'})).then(response=>settingsResponse ||= response);
+    }
+    return settingsRequest;
+  }
+  function finishSettings(){
+    if(onSettingsMessage)try{chrome.runtime.onMessage?.removeListener(onSettingsMessage);}catch{}
+    onSettingsMessage=null;
+  }
   const documentObserver=new MutationObserver(records=>{
     if(records.some(record=>!globalThis.RTPostMenuDOM?.isMenuMutation(record) && [...record.addedNodes].some(candidate)))wake();
     else if(watched.size && records.some(record=>record.removedNodes.length))pruneRoots();
@@ -111,13 +122,16 @@
   const stop=()=>{used=true;release();endDiscovery();};
   if(globalThis.chrome?.runtime?.id && chrome.runtime.sendMessage){
     onSettingsMessage=(message,sender)=>{
-      if(sender?.id===chrome.runtime.id && message?.scope==='rt-posts' && message.action==='settings-changed' && message.settings?.chatSearch===false)stop();
+      if(sender?.id!==chrome.runtime.id || message?.scope!=='rt-posts' || message.action!=='settings-changed' || !message.settings)return;
+      settingsResponse={ok:true,settings:message.settings};
+      if(message.settings.chatSearch===false)stop();
     };
     try{chrome.runtime.onMessage?.addListener(onSettingsMessage);}catch{}
-    Promise.resolve().then(()=>chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'})).then(response=>{
+    getSettings().then(response=>{
       if(response?.ok && response.settings?.chatSearch===false)stop();
     },()=>{});
+    window.addEventListener('pagehide',event=>{if(!event.persisted)finishSettings();},{once:true});
   }
-  globalThis.RCSChatStartup=Object.freeze({check,stop});
+  globalThis.RCSChatStartup=Object.freeze({check,stop,getSettings,finishSettings});
   queueMicrotask(wake);
 })();

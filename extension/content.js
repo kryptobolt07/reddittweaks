@@ -976,9 +976,9 @@
       }
     };
     try{chrome.runtime.onMessage?.addListener(onChatSettings);}catch{}
-    Promise.resolve().then(()=>chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'})).then(response=>{
+    (globalThis.RCSChatStartup?.getSettings?.() || Promise.resolve().then(()=>chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'}))).then(response=>{
       if(!stopped && response?.ok)setChatEnabled(response.settings?.chatSearch!==false);
-    },()=>{});
+    },()=>{}).finally(()=>globalThis.RCSChatStartup?.finishSettings?.());
   }
   globalThis.RCSContent=Object.freeze({setEnabled:setChatEnabled,isEnabled:()=>chatEnabled});
   window.addEventListener('pagehide',event => {

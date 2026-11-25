@@ -68,8 +68,21 @@
   let settingsPromise = null;
   let settingsEventsBound = false;
 
+  function sameSettings(left, right) {
+    if (left === right) return true;
+    if (!left) return false;
+    const keys = Object.keys(right);
+    return keys.length === Object.keys(left).length && keys.every(key => {
+      if (!Object.hasOwn(left, key)) return false;
+      const a = left[key], b = right[key];
+      return a === b || (a && b && typeof a === 'object' && typeof b === 'object' && JSON.stringify(a) === JSON.stringify(b));
+    });
+  }
+
   function applyIncomingSettings(next, meta) {
     if (!next || typeof next !== 'object' || Array.isArray(next)) return;
+    if (sameSettings(currentSettings, next)) return;
+    settingsRevision++;
     currentSettings = next;
     writeSync(next);
     for (const listener of [...settingsListeners]) {
@@ -86,13 +99,11 @@
         const ownId = ext?.runtime?.id;
         if (sender?.id && ownId && sender.id !== ownId) return;
         if (message?.scope === 'rt-posts' && message.action === 'settings-changed' && message.settings) {
-          settingsRevision++;
           applyIncomingSettings(message.settings, { sync: false, source: 'change' });
         }
       });
       ext?.storage?.onChanged?.addListener((changes, area) => {
         if (area === 'local' && changes?.['rt-settings-v1']?.newValue) {
-          settingsRevision++;
           applyIncomingSettings(changes['rt-settings-v1'].newValue, { sync: false, source: 'change' });
         }
       });
@@ -100,6 +111,7 @@
   }
 
   function getResponse() {
+    if (currentSettings) return Promise.resolve({ ok: true, settings: currentSettings });
     if (settingsPromise) return settingsPromise;
     bindSettingsEvents();
     const ext = api();
@@ -114,16 +126,16 @@
       return Promise.resolve({ ok: false, settings: null });
     }
     settingsPromise = req.then(response => {
-      workerLoaded = true;
       if (response?.ok && response.settings && typeof response.settings === 'object') {
+        workerLoaded = true;
         if (settingsRevision === initialRev) {
           currentSettings = response.settings;
           writeSync(currentSettings);
         }
-        return response;
+        return { ...response, settings: currentSettings };
       }
-      return { ok: false, settings: null };
-    }, () => ({ ok: false, settings: null }));
+      return { ok: Boolean(currentSettings), settings: currentSettings };
+    }, () => ({ ok: Boolean(currentSettings), settings: currentSettings })).finally(() => { settingsPromise = null; });
     return settingsPromise;
   }
 
@@ -147,7 +159,7 @@
       }
     }
 
-    if (!workerLoaded) {
+    if (!currentSettings) {
       getSettings().then(resolved => {
         if (!settingsListeners.has(fn) || settingsRevision !== subRev) return;
         if (resolved) {

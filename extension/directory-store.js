@@ -212,7 +212,7 @@
       }
     });}catch{}
     if(chrome.runtime?.id){
-      Promise.resolve().then(()=>chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'})).then(response=>{
+      (globalThis.RCSChatStartup?.getSettings?.() || Promise.resolve().then(()=>chrome.runtime.sendMessage({scope:'rt-posts',action:'get-settings'}))).then(response=>{
         if(response?.ok && response.settings?.chatSearch===false)setEnabled(false);
       },()=>{});
     }

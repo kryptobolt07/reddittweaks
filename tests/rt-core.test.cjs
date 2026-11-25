@@ -97,6 +97,24 @@ test('RTCore.settings shares one get-settings IPC, mirrors allowlisted primitive
   unsub2();
 });
 
+test('RTCore ignores duplicate live settings and a stale initial reply cannot replace the current read', async t => {
+  let resolveInitial;
+  const {core,emitRuntime,emitStorage,ipcs}=setupCore(t,{
+    sendMessageImpl:()=>new Promise(resolve=>{resolveInitial=resolve;})
+  });
+  const events=[];
+  const unsubscribe=core.settings.subscribe((settings,meta)=>events.push([settings?.backToTop,meta.source]));
+  const initial=core.settings.get();
+  emitStorage({'rt-settings-v1':{newValue:{backToTop:false,extra:['a']}}});
+  emitRuntime({scope:'rt-posts',action:'settings-changed',settings:{extra:['a'],backToTop:false}});
+  resolveInitial({ok:true,settings:{backToTop:true}});
+  assert.equal((await initial).backToTop,false);
+  assert.equal((await core.settings.get()).backToTop,false);
+  assert.deepEqual(events,[[false,'change']]);
+  assert.equal(ipcs.length,1);
+  unsubscribe();
+});
+
 test('RTCore.observer pools a single MutationObserver lazily, batches per frame, and watchSelector cleans up on unsubscribe', async t => {
   const { W, D, core, flushRaf } = setupCore(t);
   let observerConstructions = 0;

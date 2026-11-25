@@ -63,11 +63,11 @@ test('chatSearch toggle cleanly stops startup hold, chat UI, and local capture w
  const shell=D.getElementById('shell'),shellRoot=shell.attachShadow({mode:'open'});
  shellRoot.innerHTML='<div id="resizable"><button aria-label="Maximize chat view">Open</button></div>';
  const listeners=[],ingests=[];
- let chatSearch=true;
+ let chatSearch=true,settingsReads=0;
  W.chrome={runtime:{id:'ext',
   onMessage:{addListener(fn){listeners.push(fn);},removeListener(fn){const i=listeners.indexOf(fn);if(i>=0)listeners.splice(i,1);}},
   async sendMessage(msg){
-   if(msg?.scope==='rt-posts' && msg.action==='get-settings')return {ok:true,settings:{chatSearch}};
+   if(msg?.scope==='rt-posts' && msg.action==='get-settings'){settingsReads++;return {ok:true,settings:{chatSearch}};}
    if(msg?.scope==='rcs-messages' && msg.action==='ingest'){ingests.push(msg);return {ok:true,changed:true,roomIds:['!r:reddit.com']};}
    if(msg?.scope==='rcs-directory' && msg.action==='read')return {ok:true,entry:null};
    return {ok:true};
@@ -77,6 +77,7 @@ test('chatSearch toggle cleanly stops startup hold, chat UI, and local capture w
   W.eval(fs.readFileSync('extension/'+file,'utf8'));
  }
  await new Promise(r=>setTimeout(r,20));
+ assert.equal(settingsReads,1,'chat startup, content, directory and message cache reuse one settings read');
  assert.ok(D.querySelector('[data-rcs-ui="list"]'),'mounts chat list search when chatSearch is on');
  assert.ok(shellRoot.querySelector('[data-rcs-ui="minimized-search"]'),'mounts minimized chat button when chatSearch is on');
 
