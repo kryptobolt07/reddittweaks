@@ -356,4 +356,16 @@ test('unchanged sync snapshots skip room member/state scans and directoryContext
   await wait(400);
   assert.ok(roomListCalls<=1,'directoryContext reads client.getRooms at most once per debounced update');
   assert.ok(initialMembers>=1);
+  // Steady-state SYNCING -> SYNCING heartbeat skips full room-list and thread rescans.
+  let threadReads=0;
+  room.getThreads=()=>{threadReads++;return [];};
+  roomListCalls=0;
+  env.client.emit('sync','SYNCING','SYNCING');
+  await wait(400);
+  assert.equal(roomListCalls,0,'steady-state SYNCING heartbeat does not call client.getRooms');
+  assert.equal(threadReads,0,'steady-state SYNCING heartbeat does not call room.getThreads');
+  // Reconnect transition (RECONNECTING -> SYNCING) still performs a catch-up scan.
+  env.client.emit('sync','SYNCING','RECONNECTING');
+  await wait(30);
+  assert.ok(roomListCalls>=1,'reconnect sync transition still runs catch-up scan');
 });

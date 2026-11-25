@@ -188,7 +188,14 @@
             if(native?.roomId===roomId && typeof native?.getThreads==='function')captureNativeRoom(binding,native);
             else seedNativeTimelines(binding);
           }
-          if(type==='sync'){seedNativeTimelines(binding);announceNativeCache(binding);}
+          if(type==='sync'){
+            announceNativeCache(binding);
+            // Steady-state SYNCING -> SYNCING heartbeats already deliver any actual changes via
+            // targeted Room / Room.timeline / RoomState / Thread / accountData events; avoid
+            // re-scanning all 1,000+ rooms (client.getRooms + getThreads + directoryContext) on every heartbeat.
+            if(values[0]==='SYNCING' && values[1]==='SYNCING')return;
+            seedNativeTimelines(binding);
+          }
           if(type==='Room')captureNativeRoom(binding,values[0]);
           signalDirectory(type,...values);
         }
@@ -595,7 +602,7 @@
       const ctx={client:watchedClient};const value=directoryContext(ctx);const signature=JSON.stringify(value);
       if(signature===watchedSignature)return;
       watchedSignature=signature;
-      document.dispatchEvent(new CustomEvent('rcs-directory-changed',{detail:JSON.stringify(value)}));
+      document.dispatchEvent(new CustomEvent('rcs-directory-changed',{detail:signature}));
     },350);
   }
   document.addEventListener('rcs-traffic-response',event=>{

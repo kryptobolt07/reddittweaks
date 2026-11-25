@@ -74,7 +74,8 @@
       ...(Number.isInteger(threadCount) && threadCount>0?{threadCount,...(threadLatestTs?{threadLatestTs}:{})}:{})};
   }
   let encoder;
-  const bytes=value=>{const text=JSON.stringify(value);if(typeof TextEncoder==='function')return (encoder ||= new TextEncoder()).encode(text).length;return text.length;};
+  const bytes=value=>{const text=JSON.stringify(value);if(!/[^\x00-\x7f]/.test(text))return text.length;if(typeof TextEncoder==='function')return (encoder ||= new TextEncoder()).encode(text).length;return text.length;};
+  const EMPTY_REL_MAP=new Map();
   const order=(a,b)=>(a.time-b.time) || a.id.localeCompare(b.id);
   const relOrder=(a,b)=>(a.t-b.t) || a.e.localeCompare(b.e);
   const foldFast=value=>{const text=String(value ?? '');return /[^\x00-\x7f]/.test(text)?(globalThis.RCSCore?.foldedValue?RCSCore.foldedValue(text):text.normalize('NFKC').toLocaleLowerCase()):text.toLowerCase();};
@@ -688,19 +689,22 @@
               msgIds.add(ev.id);targetIds.add(ev.id);
             }
           }
-          const mArr=[...msgIds],rArr=[...relIds],tArr=[...targetIds];
+          const skipRels=existingRoom.hasRels===false;
+          const mArr=[...msgIds],rArr=skipRels?[]:[...relIds],tArr=skipRels?[]:[...targetIds];
           const [mRes,rRes,tRes]=await Promise.all([
             Promise.all(mArr.map(id=>this._getMsg(tx,a,n,id))),
-            Promise.all(rArr.map(id=>this._getRel(tx,a,n,id))),
-            Promise.all(tArr.map(id=>this._getRelsByTarget(tx,a,n,id)))
+            rArr.length?Promise.all(rArr.map(id=>this._getRel(tx,a,n,id))):Promise.resolve([]),
+            tArr.length?Promise.all(tArr.map(id=>this._getRelsByTarget(tx,a,n,id))):Promise.resolve([])
           ]);
           const msgCache=new Map(),relCache=new Map(),relsByTargetCache=new Map();
           for(let i=0;i<mArr.length;i++)msgCache.set(mArr[i],mRes[i] ?? null);
           for(let i=0;i<rArr.length;i++)relCache.set(rArr[i],rRes[i] ?? null);
           for(let i=0;i<tArr.length;i++){
-            const list=tRes[i] || [],map=new Map(list.map(r=>[r.e,r]));
+            const list=tRes[i];
+            if(!list?.length){relsByTargetCache.set(tArr[i],null);continue;}
+            const map=new Map();
+            for(const r of list){map.set(r.e,r);if(!relCache.has(r.e))relCache.set(r.e,r);}
             relsByTargetCache.set(tArr[i],map);
-            for(const r of list)if(!relCache.has(r.e))relCache.set(r.e,r);
           }
           return {msgCache,relCache,relsByTargetCache};
         }));
@@ -714,7 +718,7 @@
           const prevRoomBytes=room?(room.approxBytes ?? bytes(room)):0;
           if(!room){
             const n=acc.nextRoom++;
-            room={a,n,roomId,latest:null,headSeen:null,threads:{},inaccessible:null,legacyComplete:null,coverage:{complete:false,dateComplete:false,dates:{from:'',to:''}},msgCount:0,unknownCount:0,approxBytes:0};
+            room={a,n,roomId,latest:null,headSeen:null,threads:{},inaccessible:null,legacyComplete:null,coverage:{complete:false,dateComplete:false,dates:{from:'',to:''}},msgCount:0,unknownCount:0,hasRels:false,approxBytes:0};
           }else{
             room={...room,threads:{...(room.threads || {})},coverage:{...(room.coverage || {complete:false,dateComplete:false,dates:{from:'',to:''}})}};
           }
@@ -736,19 +740,26 @@
           const getMsg=async e=>{if(msgCache.has(e))return msgCache.get(e);if(isNewRoom){msgCache.set(e,null);return null;}const v=await this._getMsg(tx,a,n,e);msgCache.set(e,v ?? null);return v ?? null;};
           const setMsg=m=>{msgCache.set(m.e,m);this._putMsg(tx,m);};
           const delMsg=e=>{msgCache.set(e,null);this._deleteMsg(tx,a,n,e);};
-          const getRel=async e=>{if(relCache.has(e))return relCache.get(e);if(isNewRoom){relCache.set(e,null);return null;}const v=await this._getRel(tx,a,n,e);relCache.set(e,v ?? null);return v ?? null;};
+          const getRel=async e=>{if(relCache.has(e))return relCache.get(e);if(isNewRoom || room.hasRels===false){relCache.set(e,null);return null;}const v=await this._getRel(tx,a,n,e);relCache.set(e,v ?? null);return v ?? null;};
           const getTargetRels=async target=>{
             if(!relsByTargetCache.has(target)){
-              const list=isNewRoom?[]:await this._getRelsByTarget(tx,a,n,target);
-              const map=new Map(list.map(r=>[r.e,r]));
-              relsByTargetCache.set(target,map);
-              for(const r of list)if(!relCache.has(r.e))relCache.set(r.e,r);
+              const list=isNewRoom || room.hasRels===false?[]:await this._getRelsByTarget(tx,a,n,target);
+              if(!list?.length){relsByTargetCache.set(target,null);}
+              else{
+                const map=new Map();
+                for(const r of list){map.set(r.e,r);if(!relCache.has(r.e))relCache.set(r.e,r);}
+                relsByTargetCache.set(target,map);
+              }
             }
-            return relsByTargetCache.get(target);
+            return relsByTargetCache.get(target) || EMPTY_REL_MAP;
           };
           const putRel=rel=>{
+            const hadNone=isNewRoom || room.hasRels===false;
+            if(room.hasRels===false){room.hasRels=true;roomDirty=true;}
             relCache.set(rel.e,rel);
-            const map=relsByTargetCache.get(rel.target);if(map)map.set(rel.e,rel);
+            const map=relsByTargetCache.get(rel.target);
+            if(map)map.set(rel.e,rel);
+            else if(hadNone || relsByTargetCache.has(rel.target))relsByTargetCache.set(rel.target,new Map([[rel.e,rel]]));
             this._putRel(tx,rel);
           };
 

@@ -445,5 +445,13 @@ test('bounded top-K search matches exact tie-breaker ordering and skips unnecess
  await store.ingest({owner,roomId:rooms[0],events:Array.from({length:300},(_,i)=>({event_id:`$late_${i}`,room_id:rooms[0],type:'m.room.message',sender:owner,origin_server_ts:base+999999000+i,content:{msgtype:'m.text',body:'hello late '+i}}))});
  assert.equal((await store.search(owner,{query:'hello',limit:20,committed:true})).total,2700);
  assert.equal(sorts,0,'plain non-date search skips unnecessary projection re-sorts');
+ // Relation-free rooms skip _getRelsByTarget during plain message ingests, then resume when an edit/redaction arrives.
+ let relTargetLookups=0;const origRelLookup=store._getRelsByTarget.bind(store);
+ store._getRelsByTarget=(...args)=>{relTargetLookups++;return origRelLookup(...args);};
+ await store.ingest({owner,roomId:rooms[0],events:[{event_id:'$plain_after',room_id:rooms[0],type:'m.room.message',sender:owner,origin_server_ts:base+1000000000,content:{msgtype:'m.text',body:'hello clean'}}]});
+ assert.equal(relTargetLookups,0,'plain ingest into a relation-free room skips _getRelsByTarget');
+ await store.ingest({owner,roomId:rooms[0],events:[{event_id:'$edit_after',room_id:rooms[0],type:'m.room.message',sender:owner,origin_server_ts:base+1000001000,content:{body:'* edited','m.relates_to':{rel_type:'m.replace',event_id:'$plain_after'},'m.new_content':{body:'hello edited clean'}}}]});
+ const edited=await store.search(owner,{query:'edited clean',limit:10,committed:true});
+ assert.equal(edited.total,1);assert.equal(edited.records[0].id,'$plain_after');
  (await store.db()).close();
 });
