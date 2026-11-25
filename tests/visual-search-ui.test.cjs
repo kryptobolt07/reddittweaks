@@ -1103,6 +1103,22 @@ test('lens on embedded media searches with the embed’s still, Reddit’s own c
   assert.equal(JSON.parse(W.sessionStorage.getItem('rt-visual-seed:videos/emb222')).fallbackImageUrl, 'https://i.vimeocdn.com/video/1.jpg');
 });
 
+test('lens on a YouTube embed that hasn’t drawn its player yet: the still comes from the embed’s address', async t => {
+  const iframe = '<iframe width="356" height="200" src="https://www.youtube.com/embed/4_RV_5-nZFg?feature=oembed" frameborder="0"></iframe>';
+  const html = `<!doctype html><html><body><main>
+    <shreddit-post id="t3_yt1111" post-type="link" permalink="/r/videos/comments/yt1111/clip/" post-title="Clip"><div slot="post-media-container"><div style="position:relative"><shreddit-async-loader><shreddit-embed providername="YouTube"></shreddit-embed></shreddit-async-loader></div></div></shreddit-post>
+  </main></body></html>`;
+  const { D, W, controller } = setupUi(t, { url: 'https://www.reddit.com/r/videos/', html, settings: { visualSearch: true, visualSearchMediaButton: true } });
+  D.querySelector('shreddit-embed').setAttribute('html', iframe);
+  await controller.ready;
+  controller.sync();
+  const lens = D.querySelector('[data-rt-ui="visual-media-lens"]');
+  assert.ok(lens, 'placed without a drawn player');
+  D.addEventListener('click', e => { if (e.target.closest?.('a[data-rt-ui="visual-nav-link"]')) e.preventDefault(); });
+  lens.click();
+  assert.equal(JSON.parse(W.sessionStorage.getItem('rt-visual-seed:videos/yt1111')).fallbackImageUrl, 'https://i.ytimg.com/vi/4_RV_5-nZFg/hqdefault.jpg');
+});
+
 test('Reddit’s Media tab: a full-screen button opens the viewer with Reddit’s own MP4 playing in the page', async t => {
   const pm = JSON.stringify({ playbackMp4s: { permutations: [
     { source: { url: 'https://packaged-media.redd.it/a/pb/m2-res_360p.mp4?s=1', dimensions: { height: 360 } } },

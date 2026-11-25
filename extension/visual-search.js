@@ -289,6 +289,19 @@
     return [...(feed?.querySelectorAll?.(NATIVE_MEDIA_TILE) || [])].map(nativeMediaItem).filter(Boolean);
   }
 
+  // Reddit renders an embed's player lazily inside its own shadow root, but every shreddit-embed carries the
+  // provider's player address in its html attribute from the start. YouTube's still comes from the video id
+  // (i.ytimg.com answers CORS for any origin); embedly widgets name their still in an image parameter.
+  function embedAddressStills(html) {
+    const src = /\bsrc=["']([^"']+)["']/i.exec(String(html || ''))?.[1]?.replace(/&amp;/gi, '&') || '';
+    let url;
+    try { url = new URL(src); } catch { return []; }
+    const youtube = /(^|\.)(youtube(?:-nocookie)?\.com)$/i.test(url.hostname) && /^\/embed\/([A-Za-z0-9_-]{6,20})$/.exec(url.pathname)?.[1];
+    if (youtube) return ['https://i.ytimg.com/vi/' + youtube + '/hqdefault.jpg'];
+    if (url.hostname === 'cdn.embedly.com' && url.searchParams.get('image')) return [url.searchParams.get('image')];
+    return [];
+  }
+
   function extractPostMedia(post) {
     const postId = String(post?.getAttribute?.('id') || post?.getAttribute?.('post-id') || '').replace(/^t3_/i, '').toLowerCase();
     const rawPermalink = post?.getAttribute?.('permalink') || '';
@@ -334,7 +347,10 @@
         ...[...(post.querySelectorAll?.('img[slot="thumbnail"],img[data-post-media-primary]') || [])].map(img => img.currentSrc || img.getAttribute('src') || ''),
         ...['poster', 'thumbnail-url', 'thumbnail', 'preview-image', 'preview-url'].flatMap(name => [embed.getAttribute?.(name), lite?.getAttribute?.(name)]),
         lite?.shadowRoot?.querySelector?.('img')?.getAttribute?.('src'),
-        /url\(['"]?(https:\/\/[^'"()\s]+)['"]?\)/.exec(lite?.getAttribute?.('style') || '')?.[1]
+        /url\(['"]?(https:\/\/[^'"()\s]+)['"]?\)/.exec(lite?.getAttribute?.('style') || '')?.[1],
+        // Stills the extension's own embed handling already drew over the player.
+        ...[...(embed.shadowRoot?.querySelectorAll?.('img[data-rt-pre-still],img[data-rt-parked-still]') || [])].map(img => img.currentSrc || img.getAttribute('src') || ''),
+        ...embedAddressStills(embed.getAttribute?.('html') || '')
       ].filter(Boolean);
       fallbackImageUrl = candidates.find(isAllowedImg) || candidates.map(httpsImage).find(Boolean) || '';
     }
@@ -437,6 +453,12 @@
       this.onScrollPause = () => {
         if (this.hoveredPreview) this.checkVideoVisibility();
         if (this.host?.isConnected) this.settlePreviews();
+        // Embeds draw their players inside their own shadow roots, which the page observer can't see: look again for
+        // posts that had no picture yet once scrolling rests.
+        if (this.mediaLensEnabled) {
+          clearTimeout(this.lensTimer);
+          this.lensTimer = setTimeout(() => { if (!this.dead && this.mediaLensEnabled) this.syncMediaLenses(); }, 300);
+        }
       };
 
       this.phoneMedia = globalThis.matchMedia?.('(max-width: 767.98px)');
@@ -3729,6 +3751,7 @@
       if (this.dead) return;
       this.dead = true;
       clearTimeout(this.settingsRetry);
+      clearTimeout(this.lensTimer);
       this.observer?.disconnect();
       this.moreIO?.disconnect();
       this.videoIO?.disconnect();

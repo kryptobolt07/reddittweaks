@@ -196,3 +196,7 @@ User report: a Visual tab inside profile search, no way to move between results 
 - Live (phone, 412 px): profile search tabs Posts, Media, Comments; 14/14 Media tab tiles got the button; the viewer played `m2-res_720p.mp4` from 3.4 s, moved to 2 / 14 with the bar, and closed; the Visual row had no second lens; lens → Visual search → Back returned to `/r/aww/` at the same scroll position (1187 px).
 - Unit: profile scope, phone bar and frame swipes, hold preview, `rt_vpost` replace, embed stills, Media tab viewer.
 - Not verified: press-and-hold on a real touch screen (Playwright has no long-press without raw CDP), Firefox, the browser's permission prompt for the image hosts.
+
+### Embed lens follow-up (2026-11-25)
+
+The lens appeared only on embed posts whose player had already drawn (4 of 12 on r/videos): players render lazily inside the embed's shadow root, which the page observer can't see. Every `shreddit-embed` carries its player address in its `html` attribute from the start, so YouTube's still is derived from the video id (`i.ytimg.com/vi/<id>/hqdefault.jpg`, CORS `*`), and embedly widgets give theirs in an `image` parameter. Lens placement is also re-checked when scrolling rests. Live after: 24 of 24 embed posts on r/videos (phone).

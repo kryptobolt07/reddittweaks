@@ -5,11 +5,12 @@
 - **Full-screen viewer on phones:** Previous and Next under the media, and swipes work over playing clips too. Reaching the end loads more results.
 - **Reddit's Media tab:** a full-screen button on every tile opens the same viewer, playing Reddit's own clip (up to 720p) from where the tile was.
 - **Press and hold to preview (touch):** on the Media and Visual tabs, holding a clip plays it muted until you lift your finger.
-- **Search with this image:** the lens also works on embedded media (using its still), reading a post's picture works in Firefox, and turning Visual search on also asks for access to Reddit's image servers. Back after the lens returns to where you were.
+- **Search with this image:** reading a post's picture works in Firefox, and turning Visual search on also asks for access to Reddit's image servers. Back after the lens returns to where you were.
 - **Visual tab:** one image-search lens (the one in the search bar), and a clearer message while infini.wtf analyses a new picture.
-- **Firefox:** profiles no longer show "Public comments" network errors or the "blocking logged-out search" note; the signed-out comment stream Firefox can't load is skipped.
-- **Previews refused by the browser** (some phones block autoplay until the page is tapped) start on your next tap.
-- Not verified: press and hold on a real touch screen, Firefox, the audio leak after muting (not reproduced), and why the Visual tab sometimes stays grey beyond infini.wtf's slow analysis.
+- **Firefox:** profiles no longer show "Public comments" network errors or the "blocking logged-out search" note. Firefox still tries the signed-out comment search, but a refusal is quiet (Chrome's fallback for it, a credentialless frame, doesn't exist in Firefox).
+- **Previews and sound:** Reddit re-applies your saved Reddit volume to playing feed videos as you scroll. That unmuted previews, so the browser paused them before your first tap and you heard them after it. Previews now keep Reddit's player muted until they end or you take over. Previews refused by the browser also start on your next tap.
+- **Lens on embeds:** every embedded video gets the lens, including ones whose player hasn't drawn yet (YouTube's still is taken from the video's address).
+- Not verified: press and hold on a real touch screen, Firefox, and why the Visual tab sometimes stays grey beyond infini.wtf's slow analysis.
 
 # 0.66.0 preview
 
