@@ -38,7 +38,9 @@ function setup({
   settings = { visualSearch: true },
   origins = ['https://infini.wtf/*', 'https://image.infini.wtf/*', 'https://video.infini.wtf/*'],
   fetcher,
-  downloadsImpl
+  downloadsImpl,
+  setTimer = setTimeout,
+  clearTimer = clearTimeout
 } = {}) {
   let msgListener, storageListener, permRemovedListener;
   const calls = [];
@@ -85,8 +87,8 @@ function setup({
     AbortController,
     Date,
     console,
-    setTimeout,
-    clearTimeout,
+    setTimeout: setTimer,
+    clearTimeout: clearTimer,
     TextDecoder,
     Blob,
     FormData: FakeFormData,
@@ -143,6 +145,38 @@ test('broker rejects foreign callers and disabled setting', async () => {
 
   assert.equal((await b.send({ action: 'query', kind: 'popular' })).code, 'disabled');
   assert.equal(b.calls.length, 0);
+});
+
+test('the request deadline covers a stalled response body and releases its slot', async () => {
+  const timers = new Map();
+  let nextTimer = 0;
+  const b = setup({
+    setTimer(callback) { timers.set(++nextTimer, callback); return nextTimer; },
+    clearTimer(id) { timers.delete(id); },
+    fetcher: async (url, { signal }) => {
+      if (url.includes('queued')) return mkResponse(SAMPLE_CELL(), { url });
+      return {
+        ok: true, status: 200, url, bodyUsed: true,
+        body: {
+          getReader() {
+            return {
+              read: () => new Promise((_, reject) => signal.addEventListener('abort', () => reject(Error('Aborted')), { once: true })),
+              releaseLock() {}
+            };
+          }
+        }
+      };
+    }
+  });
+  const requests = ['one', 'two', 'three', 'queued'].map(target => b.send({ action: 'query', kind: 'search', target }));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(b.calls.length, 3);
+  assert.equal(timers.size, 3, 'the deadline remains armed after headers arrive');
+  for (const callback of [...timers.values()]) callback();
+  const replies = await Promise.all(requests);
+  assert.deepEqual(replies.slice(0, 3).map(reply => reply.code), ['timeout', 'timeout', 'timeout']);
+  assert.equal(replies[3].items[0].uuid, 'abc1234');
+  assert.equal(timers.size, 0);
 });
 
 test('query uses credential-free fetch, caches separately for safe vs nsfw, and clears nsfw cache on nsfwOnly reset', async () => {

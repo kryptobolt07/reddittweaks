@@ -257,7 +257,7 @@
     return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
   }
 
-  async function fetchInfini(url, init = {}, { timeoutMs = QUERY_TIMEOUT_MS, force = false } = {}) {
+  async function fetchInfini(url, init = {}, { timeoutMs = QUERY_TIMEOUT_MS, force = false, maxBytes } = {}) {
     await backoffLoaded;
     await loadBackoff();
     const now = Date.now();
@@ -266,8 +266,9 @@
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let response;
     try {
-      const response = await fetch(url, {
+      response = await fetch(url, {
         credentials: 'omit',
         referrerPolicy: 'no-referrer',
         cache: 'no-store',
@@ -283,7 +284,10 @@
         return { early: markUnavailable(force && unavailableUntil > now) };
       }
       markAvailable();
-      return { response, controller };
+      const text = maxBytes && response.ok && response.status !== 204
+        ? await readBoundedText(response, controller, maxBytes)
+        : null;
+      return { response, text };
     } catch {
       return {
         early: fail(
@@ -293,6 +297,7 @@
       };
     } finally {
       clearTimeout(timer);
+      if (response && !response.bodyUsed) response.body?.cancel?.().catch(() => {});
     }
   }
 
@@ -321,21 +326,19 @@
 
     return dedupeRead('q:' + key, async () => {
       const accept = kind === 'user' ? 'text/vnd.turbo-stream.html, text/html' : 'text/vnd.turbo-stream.html';
-      const first = await fetchInfini(endpoint, { method: 'GET', headers: { Accept: accept } }, { timeoutMs: QUERY_TIMEOUT_MS, force: Boolean(message.force) });
+      const first = await fetchInfini(endpoint, { method: 'GET', headers: { Accept: accept } }, { force: Boolean(message.force), maxBytes: MAX_HTML_BYTES });
       if (first.early) return first.early;
 
-      let { response, controller } = first;
+      let { response, text } = first;
       if (response.status === 204) {
         const result = { ok: true, items: [], skippedCount: 0, page, hasMore: false, nextPage: 0, endpointKind: kind, filterable: kind !== 'view', cached: false };
         setCached(key, result);
         return result;
       }
       if (!response.ok) {
-        await response.body?.cancel?.().catch(() => {});
         return fail('Visual search returned HTTP ' + response.status + '.', 'http-error', { status: response.status });
       }
 
-      let text = await readBoundedText(response, controller, MAX_HTML_BYTES);
       if (text == null) return fail('Visual search response exceeded the size limit.', 'invalid-response');
 
       // /view/<uuid> can 301-redirect to /view/<slug>-<uuid> without preserving .turbo_stream; retry once on the canonical turbo stream.
@@ -344,11 +347,8 @@
         if (canonical && canonical !== spec.target && !String(response.url || '').includes('.turbo_stream')) {
           const retryUrl = Model.buildEndpoint({ kind: 'view', target: canonical, page });
           if (retryUrl) {
-            const second = await fetchInfini(retryUrl, { method: 'GET', headers: { Accept: 'text/vnd.turbo-stream.html' } }, { timeoutMs: QUERY_TIMEOUT_MS, force: Boolean(message.force) });
-            if (!second.early && second.response.ok && second.response.status !== 204) {
-              const secondText = await readBoundedText(second.response, second.controller, MAX_HTML_BYTES);
-              if (secondText != null) text = secondText;
-            }
+            const second = await fetchInfini(retryUrl, { method: 'GET', headers: { Accept: 'text/vnd.turbo-stream.html' } }, { force: Boolean(message.force), maxBytes: MAX_HTML_BYTES });
+            if (second.text != null) text = second.text;
           }
         }
       }
@@ -385,14 +385,10 @@
     if (hit) return { ...hit, cached: true };
 
     return dedupeRead(key, async () => {
-      const res = await fetchInfini(endpoint, { method: 'GET', headers: { Accept: 'text/vnd.turbo-stream.html, application/json, text/html' } }, { timeoutMs: RELATED_TIMEOUT_MS });
+      const res = await fetchInfini(endpoint, { method: 'GET', headers: { Accept: 'text/vnd.turbo-stream.html, application/json, text/html' } }, { timeoutMs: RELATED_TIMEOUT_MS, maxBytes: 250_000 });
       if (res.early) return { ok: true, items: [] };
-      const { response, controller } = res;
-      if (!response.ok || response.status === 204) {
-        await response.body?.cancel?.().catch(() => {});
-        return { ok: true, items: [] };
-      }
-      const text = await readBoundedText(response, controller, 250_000);
+      const { response, text } = res;
+      if (!response.ok || response.status === 204) return { ok: true, items: [] };
       const items = Model.parseSuggestions(text || '', query, 12);
       const out = { ok: true, items, cached: false };
       setCached(key, out);
@@ -410,14 +406,10 @@
     if (hit) return hit;
 
     return dedupeRead(key, async () => {
-      const res = await fetchInfini(endpoint, { method: 'GET', headers: { Accept: 'text/vnd.turbo-stream.html, application/json, text/html' } }, { timeoutMs: RELATED_TIMEOUT_MS });
+      const res = await fetchInfini(endpoint, { method: 'GET', headers: { Accept: 'text/vnd.turbo-stream.html, application/json, text/html' } }, { timeoutMs: RELATED_TIMEOUT_MS, maxBytes: 150_000 });
       if (res.early) return { ok: true, items: [] };
-      const { response, controller } = res;
-      if (!response.ok || response.status === 204) {
-        await response.body?.cancel?.().catch(() => {});
-        return { ok: true, items: [] };
-      }
-      const text = await readBoundedText(response, controller, 150_000);
+      const { response, text } = res;
+      if (!response.ok || response.status === 204) return { ok: true, items: [] };
       const items = Model.parseSuggestions(text || '', query, 8);
       const out = { ok: true, items };
       setCached(key, out);
@@ -438,14 +430,12 @@
     }
 
     return dedupeRead(key, async () => {
-      let res = await fetchInfini(endpoint, { method: 'HEAD' }, { timeoutMs: QUERY_TIMEOUT_MS, force: Boolean(message.force) });
+      let res = await fetchInfini(endpoint, { method: 'HEAD' }, { force: Boolean(message.force) });
       if (!res.early && (res.response.status === 405 || res.response.status === 501)) {
-        await res.response.body?.cancel?.().catch(() => {});
-        res = await fetchInfini(endpoint, { method: 'GET', headers: { Accept: 'text/html' } }, { timeoutMs: QUERY_TIMEOUT_MS, force: Boolean(message.force) });
+        res = await fetchInfini(endpoint, { method: 'GET', headers: { Accept: 'text/html' } }, { force: Boolean(message.force) });
       }
       if (res.early) return res.early;
       const { response } = res;
-      await response.body?.cancel?.().catch(() => {});
       const viewId = Model.parseViewUrl(response.url);
       if (viewId) {
         const result = { ok: true, indexed: true, viewId, cached: false };
@@ -467,15 +457,13 @@
     if (!endpoint) return fail('Invalid image hash.', 'invalid-request');
 
     return withSlot(async () => {
-      const res = await fetchInfini(endpoint, { method: 'GET', headers: { Accept: 'application/json' } }, { timeoutMs: QUERY_TIMEOUT_MS, force: Boolean(message.force) });
+      const res = await fetchInfini(endpoint, { method: 'GET', headers: { Accept: 'application/json' } }, { force: Boolean(message.force), maxBytes: 100_000 });
       if (res.early) return res.early;
-      const { response, controller } = res;
+      const { response, text } = res;
       if (response.status === 404) return { ok: true, exists: false, hasEmbedding: false, uuid: '' };
       if (!response.ok) {
-        await response.body?.cancel?.().catch(() => {});
         return fail('Could not check upload status (HTTP ' + response.status + ').', 'http-error', { status: response.status });
       }
-      const text = await readBoundedText(response, controller, 100_000);
       if (text == null) return fail('Upload status response too large.', 'invalid-response');
       let json;
       try { json = JSON.parse(text); } catch { return fail('Unreadable upload status response.', 'invalid-response'); }
@@ -537,18 +525,15 @@
     return withSlot(async () => {
       // Hash check first: skip uploading completely when infini.wtf already indexed this image.
       const statusUrl = Model.buildEndpoint({ kind: 'image-query', hash });
-      const checkRes = await fetchInfini(statusUrl, { method: 'GET', headers: { Accept: 'application/json' } }, { timeoutMs: QUERY_TIMEOUT_MS, force: Boolean(message.force) });
+      const checkRes = await fetchInfini(statusUrl, { method: 'GET', headers: { Accept: 'application/json' } }, { force: Boolean(message.force), maxBytes: 100_000 });
       if (!checkRes.early && checkRes.response.ok) {
-        const checkText = await readBoundedText(checkRes.response, checkRes.controller, 100_000);
         try {
-          const json = JSON.parse(checkText || '');
+          const json = JSON.parse(checkRes.text || '');
           const uuid = typeof json?.uuid === 'string' && Model.UUID_RE.test(json.uuid) ? json.uuid : '';
           if (uuid) {
             return { ok: true, hash, uuid, hasEmbedding: json?.has_embedding === true, uploaded: false };
           }
         } catch {}
-      } else if (!checkRes.early) {
-        await checkRes.response.body?.cancel?.().catch(() => {});
       }
 
       const form = new FormData();
@@ -556,16 +541,14 @@
       form.append('image_hash', hash);
 
       const postUrl = Model.buildEndpoint({ kind: 'image-upload' });
-      const uploadRes = await fetchInfini(postUrl, { method: 'POST', body: form, headers: { Accept: 'application/json, text/vnd.turbo-stream.html' } }, { timeoutMs: UPLOAD_TIMEOUT_MS, force: Boolean(message.force) });
+      const uploadRes = await fetchInfini(postUrl, { method: 'POST', body: form, headers: { Accept: 'application/json, text/vnd.turbo-stream.html' } }, { timeoutMs: UPLOAD_TIMEOUT_MS, force: Boolean(message.force), maxBytes: 250_000 });
       if (uploadRes.early) return uploadRes.early;
 
-      const { response, controller } = uploadRes;
+      const { response, text: bodyText } = uploadRes;
       if (!response.ok) {
-        await response.body?.cancel?.().catch(() => {});
         return fail('Image upload failed (HTTP ' + response.status + ').', 'http-error', { status: response.status });
       }
 
-      const bodyText = await readBoundedText(response, controller, 250_000);
       let uuid = '';
       let hasEmbedding = false;
       const uploadRedirect = /\/search-by-upload\/([A-Za-z0-9_-]{4,80})/.exec(response.url || '');
@@ -583,11 +566,10 @@
         if (match && Model.UUID_RE.test(match[1])) uuid = match[1];
       }
       if (!uuid) {
-        const pollRes = await fetchInfini(statusUrl, { method: 'GET', headers: { Accept: 'application/json' } }, { timeoutMs: QUERY_TIMEOUT_MS });
+        const pollRes = await fetchInfini(statusUrl, { method: 'GET', headers: { Accept: 'application/json' } }, { maxBytes: 100_000 });
         if (!pollRes.early && pollRes.response.ok) {
-          const pollText = await readBoundedText(pollRes.response, pollRes.controller, 100_000);
           try {
-            const json = JSON.parse(pollText || '');
+            const json = JSON.parse(pollRes.text || '');
             if (typeof json?.uuid === 'string' && Model.UUID_RE.test(json.uuid)) uuid = json.uuid;
             hasEmbedding = json?.has_embedding === true;
           } catch {}

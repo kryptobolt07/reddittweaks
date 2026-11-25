@@ -1175,6 +1175,24 @@ test('on a fresh page the stills nearest the screen are looked up first and each
  assert.equal(c.posters.get('t3_far')?.[0],'https://media.example.test/far.jpg');
 });
 
+test('empty poster lookups stay bounded across a long feed and a recent miss is not requested twice',async t=>{
+ const {W}=page(t),methods=W.RTVideoControlRaw.Videos.prototype;
+ const c={win:W,posters:new Map(),providerPosters:new Set(),posterWanted:new Map(),paintPosters(){},readPosters:async()=>({})};
+ for(let i=0;i<512+32;i+=8){
+  for(let j=i;j<i+8;j++)c.posterWanted.set('t3_missing'+j,'');
+  await methods.loadPosters.call(c);
+ }
+ assert.equal(c.posters.size,512);
+ assert.equal(c.posters.has('t3_missing0'),false);
+ methods.queuePoster.call(c,'t3_missing543','');
+ assert.equal(c.posterWanted.size,0);
+ c.posterWanted.set('t3_found','');
+ c.readPosters=async()=>({t3_found:'https://media.example.test/still.jpg'});
+ await methods.loadPosters.call(c);
+ assert.equal(c.posters.size,512);
+ assert.equal(c.posters.get('t3_found')[0],'https://media.example.test/still.jpg');
+});
+
 test('a card shows its still while Reddit has not inserted its player, and until that player has drawn',async t=>{
  const p=page(t),image='https://cdn.example.test/still.jpg';
  const node=p.d.createElement('shreddit-embed');node.setAttribute('embedly-iframe','<iframe src="'+embedly+'&image='+encodeURIComponent(image)+'"></iframe>');node.attachShadow({mode:'open'});

@@ -1573,7 +1573,9 @@
   // Missing images are requested in small batches after their cards approach the viewport.
   async loadPosters(){
    this.posterTimer=null;
-   const sources=new Map([...this.posterWanted].slice(0,8)),ids=[...sources.keys()];if(!ids.length)return;
+   const sources=new Map();
+   for(const [id,src] of this.posterWanted){sources.set(id,src);if(sources.size===8)break;}
+   const ids=[...sources.keys()];if(!ids.length)return;
    for(const id of ids)this.posterWanted.delete(id);
    for(const id of ids)this.posters.set(id,[]);
    this.loadingPosters=true;
@@ -1582,16 +1584,16 @@
     const urls=[].concat(value || []).filter(posterOK);
     if(this.dead || !urls.length || this.posters.get(id)?.length)return;
     this.posters.set(id,urls);
-    // Bounded like posterQuality: a long feed session meets thousands of posts.
-    if(this.posters.size>512){const oldest=this.posters.keys().next().value;this.posters.delete(oldest);this.providerPosters.delete(oldest);}
     if(provider)this.providerPosters.add(id);
     this.paintPosters([id]);
    };
    let found={};try{found=await this.readPosters(ids,sources,paint);}catch{}
    this.loadingPosters=false;
    if(this.dead)return;
-   if(this.posterWanted.size && !this.posterTimer)this.posterTimer=this.win.setTimeout(()=>this.loadPosters(),60);
    for(const [id,urls] of Object.entries(found || {}))paint(id,urls);
+   // Keep settled misses in the same bound as successful lookups.
+   while(this.posters.size>512){const oldest=this.posters.keys().next().value;this.posters.delete(oldest);this.providerPosters.delete(oldest);}
+   if(this.posterWanted.size && !this.posterTimer)this.posterTimer=this.win.setTimeout(()=>this.loadPosters(),60);
    this.paintPosters(ids);
   }
   // Iframes Reddit adds inside an embed (when it comes near the screen) are caught before they load, unless chosen.
