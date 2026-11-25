@@ -15,6 +15,33 @@ function setup(t,{content=false}={}) {
   if(content){for(const file of ['extension/message-store.js','extension/media-preview.js','extension/date-picker.js','extension/content.js'])W.eval(source(file));}
   return {W,api,client,listeners};
 }
+test('native replies update only their thread and restore verified coverage when their root is complete',t=>{
+  const {W}=setup(t),history=new W.RCSHistoryStore(),room=history.get('@t2_me:reddit.com','example');
+  const root=(id,seq,count)=>({event_id:id,seq_id:seq,unsigned:{'m.relations':{'m.thread':{count}}}});
+  const reply=(id,parent)=>({event_id:id,content:{'m.relates_to':{rel_type:'m.thread',event_id:parent}}});
+  history.finishScope(room,'');
+  history.rememberThread(room,'1','$saved',1);
+  history.accept(room,root('$live',2,1));
+  history.finishScope(room,'1');history.finishScope(room,'2');
+  room.dirtyThreads.add('1');
+  assert.equal(history.readiness(room),false);
+  history.accept(room,reply('$live-reply','$live'));
+  assert.deepEqual([...room.dirtyThreads],['1']);
+  history.accept(room,reply('$saved-reply','$saved'));
+  assert.equal(room.complete,true);
+
+  history.accept(room,root('$replacement',2,1));
+  history.accept(room,reply('$another-live-reply','$live'));
+  assert.equal(room.complete,false,'a displaced root cannot mark the replacement complete');
+  history.accept(room,reply('$replacement-reply','$replacement'));
+  assert.equal(room.complete,true);
+
+  history.accept(room,root('$new',3,1));
+  history.accept(room,reply('$new-reply','$new'));
+  assert.equal(room.complete,false,'receiving all known replies does not certify a thread scope');
+  history.finishScope(room,'3');history.finishScope(room,'3');
+  assert.equal(history.readiness(room),true);
+});
 test('cancelled history resumes at the saved cursor instead of downloading its first page again',async t=>{
   const {W,api}=setup(t);let task;
   task=W.RCSData.request('history',{roomId:'alex'},progress=>{if(progress.loaded===3)task.cancel();});

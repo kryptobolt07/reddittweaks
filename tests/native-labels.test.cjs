@@ -156,3 +156,33 @@ test('native user avatars receive retained images before first render and restor
 test('identity SVG markers keep geometry but reject executable elements, events and URL paints',async t=>{
  const {W,api,A,row}=setup(t);W.RCSDirectoryModel={...W.RCSDirectoryModel,accountMarker:()=>({kind:'unavailable',label:'Unavailable account',title:'Retained',path:'<script>alert(1)</script><image href="https://evil.invalid/a"/><foreignObject><div>bad</div></foreignObject><path d="M1 2L3 4" onload="alert(1)" fill="url(https://evil.invalid/paint)"/>'})};const records=await W.RCSData.request('conversations').promise;await W.RCSNativeLabels.update(new Map(records.map(r=>[r.id,r])),new W.RCSCore.MessageIndex(Infinity));const badge=A.query('[data-rcs-ui="identity-status"]',row),svg=badge.querySelector('svg');assert.equal(svg.querySelector('script,image,foreignObject'),null);assert.equal(svg.querySelector('[onload],[href]'),null);assert.equal(svg.querySelector('path').getAttribute('d'),'M1 2L3 4');assert.equal(svg.querySelector('path').getAttribute('fill'),null);assert.equal(badge.getAttribute('aria-label'),'Unavailable account');
 });
+
+test('identity refresh uses the current chat tree without retaining virtualized native elements',t=>{
+  const dom=new JSDOM('<!doctype html><body></body>',{runScripts:'outside-only'}),W=dom.window;
+  t.after(()=>W.close());
+  const sets=[];
+  W.Set=class extends W.Set{constructor(...args){super(...args);sets.push(this);}};
+  W.eval(source('extension/native-identities.js'));
+  const client={getUserId:()=> '@t2_me:reddit.com'},all=selector=>[...W.document.querySelectorAll(selector)];
+  W.RCSNativeIdentities.configure(()=>({client,all}));
+  const original=()=> '[deleted]';
+  W.customElements.define('rs-timeline-event',class extends W.HTMLElement{
+    constructor(){super();this.users={getDisplayName:original};this.updates=0;}
+    connectedCallback(){}
+    requestUpdate(){this.updates++;}
+  });
+  let removed;
+  for(let i=0;i<100;i++){
+    removed=W.document.createElement('rs-timeline-event');
+    W.document.body.append(removed);removed.remove();
+  }
+  const visible=W.document.createElement('rs-timeline-event');
+  W.document.body.append(visible);
+  assert.equal(sets.flatMap(set=>[...set]).filter(host=>host?.localName==='rs-timeline-event' && !host.isConnected).length,0);
+  assert.notEqual(visible.users.getDisplayName,original,'native hooks are enabled while attached');
+  W.RCSNativeIdentities.clear();
+  assert.equal(visible.users.getDisplayName,original);
+  assert.equal(removed.users.getDisplayName,original,'a native object retained elsewhere can still be restored');
+  assert.equal(visible.updates,1);
+  assert.equal(removed.updates,0);
+});

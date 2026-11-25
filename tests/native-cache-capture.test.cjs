@@ -40,6 +40,37 @@ test('startup captures loaded native timelines and threads without profile, hist
   assert.equal(env.api.calls.length,0);assert.equal(env.batches.some(batch=>batch.coverage?.complete),false);
   env.client.emit('sync');assert.equal(env.batches.length,1,'unchanged loaded snapshots do not write again');
 });
+test('a recognized native thread update captures its own room with one compaction per event',async t=>{
+  const reads=new Map(),timelines=new Map();let bodyReads=0;
+  const event=(id,room)=>({...message(id,room),get content(){bodyReads++;return {body:'synthetic '+id};}});
+  const root=event('root','one'),thread={roomId:'one',rootEvent:root,events:[]};
+  const env=setup(client=>{
+    const rooms=['one','two'].map(roomId=>{
+      const events=[event('initial-'+roomId,roomId)];timelines.set(roomId,events);
+      return {roomId,getThreads:()=>roomId==='one'?[thread]:[],getLiveTimeline:()=>({getEvents:()=>{
+        reads.set(roomId,(reads.get(roomId) || 0)+1);return events;
+      }})};
+    });
+    client.getRooms=()=>rooms;client.getRoom=id=>rooms.find(room=>room.roomId===id);
+  });
+  t.after(()=>env.dom.window.close());
+  await wait(20);
+  assert.equal(bodyReads,3,'initial snapshot compacts each captured event once');
+  assert.deepEqual([...reads],[['one',1],['two',1]]);
+  reads.clear();
+  thread.events.push(event('reply','one'));
+  env.client.emit('Thread.newReply',thread);
+  await wait(20);
+  assert.deepEqual([...reads],[['one',1]],'thread updates do not duplicate unrelated room timelines');
+  assert.equal(env.batches.at(-1).events[0].event_id,'reply');
+
+  reads.clear();timelines.get('two').push(event('unattributed','two'));
+  env.client.emit('Thread.update',{});
+  await wait(20);
+  assert.deepEqual([...reads],[['one',1],['two',1]]);
+  assert.equal(env.batches.at(-1).events[0].event_id,'unattributed','unknown native event models preserve the full fallback');
+  assert.equal(env.api.calls.length,0);
+});
 test('pending local echoes are skipped and native confirmation captures their server ID',async t=>{
   const env=setup(client=>{client.getRooms=()=>[{roomId:'startup',getLiveTimeline:()=>({getEvents:()=>[message('~startup:m123','startup')]}),getThreads:()=>[]}];});t.after(()=>env.dom.window.close());await wait(20);
   assert.equal(env.batches.flatMap(b=>b.events).length,0);
@@ -73,6 +104,77 @@ test('native callbacks fail open and switching client/account detaches watchers 
   next.emit('event',{event:message('queued-during-switch')});assert.equal(env.batches.length,1);
   await env.W.RCSData.request('identity-context').promise;next.emit('event',{event:message('third')});
   assert.equal(env.batches.at(-1).owner,owner);assert.equal(nextHandlers.get('event').size,1);
+});
+test('native client listeners and discovery follow fullscreen, floating, minimized and unmounted chat',async t=>{
+  let heartbeat;
+  const env=setup((_client,W)=>{
+    const setInterval=W.setInterval.bind(W);
+    W.setInterval=(callback,ms,...args)=>{
+      if(ms===1500)heartbeat=callback;
+      return setInterval(callback,ms,...args);
+    };
+  });
+  t.after(()=>env.dom.window.close());
+  const {W,client,handlers}=env;
+  W.customElements.define('rs-matrix-client',class extends W.HTMLElement{connectedCallback(){}});
+  await W.RCSData.request('identity-context').promise;
+  const count=watchers=>[...watchers.values()].reduce((total,group)=>total+group.size,0);
+  const before=count(handlers),stale=handlers.get('event').values().next().value;
+  assert.equal(before,15);
+  const queryAll=W.document.querySelectorAll.bind(W.document);
+  let scans=0;
+  W.document.querySelectorAll=(...args)=>{scans++;return queryAll(...args);};
+  heartbeat();heartbeat();
+  assert.equal(scans,0,'an attached native client needs no DOM rediscovery');
+
+  env.api.app.remove();
+  await Promise.resolve();
+  assert.equal(count(handlers),0,'disconnected native host releases all listeners without another request');
+  stale({event:message('stale-fullscreen')});
+  assert.equal(env.batches.length,0);
+
+  const outer=W.document.createElement('main'),shell=W.document.createElement('div');
+  const root=shell.attachShadow({mode:'open'}),host=W.document.createElement('div');
+  host.id='resizable';
+  root.append(host);outer.append(shell);W.document.body.append(outer);
+  const floating=W.ChatFixture.build(host,{compact:true});
+  const floatingClient=floating.app.querySelector('rs-matrix-client').client,floatingHandlers=emitter(floatingClient);
+  await W.RCSData.request('identity-context').promise;
+  assert.equal(count(floatingHandlers),before,'the fallback finds a floating shell nested below a wrapper');
+  host.hidden=true;
+  const maximize=W.document.createElement('button');maximize.setAttribute('aria-label','Maximize chat view');root.append(maximize);
+  heartbeat();
+  assert.equal(count(floatingHandlers),before,'minimizing leaves an attached native client watched');
+  floatingClient.emit('event',{event:message('minimized-message')});
+  assert.equal(env.batches.at(-1).events[0].event_id,'minimized-message');
+
+  outer.remove();await Promise.resolve();
+  assert.equal(count(floatingHandlers),0);
+  W.document.body.append(outer);host.hidden=false;maximize.remove();
+  await W.RCSData.request('identity-context').promise;
+  assert.equal(count(floatingHandlers),before,'the same client can reconnect with a fresh binding');
+  floatingClient.emit('event',{event:message('restored-message')});
+  assert.equal(env.batches.at(-1).events[0].event_id,'restored-message');
+  assert.equal(env.api.calls.length+floating.calls.length,0);
+});
+test('reconnecting the same native client does not refill a timeline cleared while chat was closed',async t=>{
+  const timeline=[message('cleared','room')];
+  const env=setup(client=>{
+    client.getRooms=()=>[{roomId:'room',getLiveTimeline:()=>({getEvents:()=>timeline})}];
+  });
+  t.after(()=>env.dom.window.close());
+  const {W,client}=env,app=env.api.app;
+  W.customElements.define('rs-matrix-client',class extends W.HTMLElement{connectedCallback(){}});
+  await wait(20);
+  assert.equal(env.batches.flatMap(batch=>batch.events).length,1);
+  app.remove();await Promise.resolve();
+  W.document.dispatchEvent(new W.CustomEvent('rcs-message-cache-reset',{detail:JSON.stringify({owner:client.getUserId()})}));
+  W.document.body.append(app);
+  await W.RCSData.request('identity-context').promise;
+  await wait(20);
+  assert.equal(env.batches.flatMap(batch=>batch.events).length,1);
+  client.emit('event',{event:message('new','room')});
+  assert.deepEqual(env.batches.flatMap(batch=>batch.events.map(event=>event.event_id)),['cleared','new']);
 });
 test('already fetched history pages persist out-of-order edits/redactions, even before originals arrive',async t=>{
   const env=setup();t.after(()=>env.dom.window.close());

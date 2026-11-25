@@ -7,7 +7,7 @@
   const running = new Map();
   const knownConversations = new Map();
   let knownOwner='';
-  let watchedClient=null,watchedHost=null,activityTimer=null;
+  let watchedClient=null,watchedHost=null,watchBinding=null,lastWatchedClient,activityTimer=null;
   // The watched client while its own element is still on the page: identity reads need nothing else, so they skip
   // the full scan of Reddit's chat (every element and shadow root), which ran twice per saved-data read.
   function liveClient(){
@@ -18,19 +18,20 @@
   const captureSignatures=new Map();
   const capturedIdentities=new Map();
   const capturedCoverage=new Map();
+  const clearBaselines=new WeakMap();
   let nativeCapture;
   let cacheConsumerReady=false;
   document.addEventListener('rcs-message-cache-listening',event=>{
     const replay=!cacheConsumerReady || event?.detail==='resume';cacheConsumerReady=true;
-    if(replay && nativeCapture?.ctx && nativeCapture.owner===nativeCapture.client.getUserId()){
+    if(replay && nativeCapture && liveClient()){
       // The page client can become ready before isolated content scripts attach, or chat indexing may resume.
       // Replay its already-loaded snapshot once, rather than deduplicating data
       // that was emitted while nobody could persist it.
       captureSignatures.clear();capturedIdentities.clear();capturedCoverage.clear();nativeCapture.snapshots.clear();
-      seedNativeTimelines(nativeCapture.ctx,{force:true});
+      seedNativeTimelines(nativeCapture,{force:true});
       // The original connection announcement may have preceded the isolated
       // consumer too. Replay it so disk-only history imports without search.
-      announceNativeCache(nativeCapture.ctx,{force:true});
+      announceNativeCache(nativeCapture,{force:true});
     }
   });
   let watchedSignature='';
@@ -46,7 +47,6 @@
   const profileChangedRooms = new Set();
   const nativeHandlers = new Map();
   let metadataVersion=0;
-  let bindingClient=null;
   const histories=new RCSHistoryStore(20,room=>document.dispatchEvent(new CustomEvent('rcs-history-changed',{detail:JSON.stringify({owner:room.owner,roomId:room.roomId,evicted:true})})));
   const delay = ms => new Promise(resolve => setTimeout(resolve,ms));
   function problem(message) {const error=new Error(message);error.rcsMessage=message;return error;}
@@ -59,19 +59,24 @@
   }
   function context() {
     const direct = document.querySelector('rs-app');
-    const shells = [...document.querySelectorAll('div')].filter(element => element.shadowRoot?.querySelector('#resizable'));
+    const isShell=element=>element.shadowRoot?.querySelector('#resizable, button[aria-label="Maximize chat view"]');
+    const shells = [...document.querySelectorAll('shreddit-app > div, body > div, reddit-chat-host > div')].filter(isShell);
     const roots = [...new Set([...(direct ? descendants(direct) : []),...shells.flatMap(descendants)])];
     const all = selector => [...new Set(roots.flatMap(root => [...root.querySelectorAll(selector)]))];
     const find = selector => all(selector)[0];
-    const matrix = find('rs-matrix-client');
+    let matrix = find('rs-matrix-client');
+    if(!matrix){
+      // Older layouts can mount the floating shell below an extra wrapper.
+      for(const shell of document.querySelectorAll('div'))if(!shells.includes(shell) && isShell(shell))roots.push(...descendants(shell));
+      matrix=find('rs-matrix-client');
+    }
     const userHosts = all('rs-rooms-nav-room,rs-room,rs-room-info,rs-timeline-event,rs-room-settings');
     const users = userHosts.flatMap(host=>[host.users,host.usersController,host.roomController?.users])
       .find(controller=>typeof controller?.getRedditUserById==='function');
-    bindingClient=matrix?.client || bindingClient;
-    for(const host of userHosts)if(host.localName==='rs-timeline-event')try{stampNativeEvent(host);}catch{ /* Future native models must fail open. */ }
-    return {client:matrix?.client,users,history:find('rs-history'),find,all};
+    for(const host of userHosts)if(host.localName==='rs-timeline-event')try{stampNativeEvent(host,matrix?.client || liveClient());}catch{ /* Future native models must fail open. */ }
+    return {client:matrix?.client,matrix,users,history:find('rs-history'),all};
   }
-  function stampNativeEvent(host,client=bindingClient) {
+  function stampNativeEvent(host,client=liveClient()) {
     const value=host.event,raw=value?.event || value,id=value?.getId?.() || raw?.event_id,sender=value?.getSender?.() || raw?.sender,owner=client?.getUserId?.();
     const attribute=(key,value)=>{if(value && host.getAttribute(key)!==value)host.setAttribute(key,value);else if(!value && host.hasAttribute(key))host.removeAttribute(key);};
     attribute('data-rcs-event-id',id);attribute('data-rcs-sender',sender);
@@ -102,7 +107,7 @@
   }
   function check(job) {
     if (job.cancelled) throw new DOMException('Search cancelled','AbortError');
-    if(job.owner && job.ctx?.client.getUserId()!==job.owner)throw problem('Reddit account changed. Please retry.');
+    if(job.owner && (watchBinding!==job.binding || !liveClient()))throw problem('Reddit account changed. Please retry.');
   }
   function emit(request,fields) {
     if(request.broadcast){request.broadcast(fields);return;}
@@ -123,24 +128,37 @@
     }));
     return {owner,ids,roomMeta,revision:JSON.stringify(ids),metadataVersion,changedIds:[...changedRooms],profileChangedIds:[...profileChangedRooms]};
   }
-  function watchDirectory(ctx) {
-    const owner=ctx.client?.getUserId?.();
-    if(!owner || watchedClient===ctx.client && watchedOwner===owner)return;
+  function detachNativeClient() {
     clearTimeout(watchTimer);
-    if(watchedClient?.off)for(const [type,handler]of nativeHandlers)watchedClient.off(type,handler);
+    clearTimeout(activityTimer);activityTimer=null;
+    const client=watchedClient;
+    watchBinding=null;watchedClient=null;watchedHost=null;watchedOwner='';nativeCapture=null;
+    RCSNativeIdentities.setClient(null);
+    const off=client?.off || client?.removeListener;
+    if(off)for(const [type,handler]of nativeHandlers)try{off.call(client,type,handler);}catch{ /* Keep detaching the other listeners. */ }
     nativeHandlers.clear();changedRooms.clear();profileChangedRooms.clear();metadataVersion=0;
-    // A different account's wanted list never carries over; the same account's (sent before its client attached) is kept.
-    if(watchedOwner && watchedOwner!==owner)classifier.wanted.clear();
     captureSignatures.clear();capturedIdentities.clear();capturedCoverage.clear();
-    watchedClient=ctx.client;watchedOwner=owner;queueMicrotask(()=>pumpClassifier());
-    nativeCapture={client:ctx.client,owner,ctx,pending:new Map(),snapshots:new Map(),task:null,recovery:null,incomplete:false,missing:new Set()};
-    if(knownOwner!==owner){knownConversations.clear();knownRoomStates.clear();histories.clear();knownOwner=owner;}
-    watchedSignature=JSON.stringify(directoryContext(ctx));
-    const client=ctx.client,matrixHost=ctx.find?.('rs-matrix-client');watchedHost=matrixHost || null;
+  }
+  function watchDirectory({client,matrix}) {
+    const owner=client?.getUserId?.();
+    if(!owner || !matrix?.isConnected || matrix.client!==client)return;
+    if(watchedClient===client && watchedOwner===owner && watchedHost===matrix)return;
+    detachNativeClient();
+    if(knownOwner!==owner){
+      if(knownOwner)classifier.wanted.clear();
+      knownConversations.clear();knownRoomStates.clear();histories.clear();knownOwner=owner;
+    }
+    watchedClient=client;watchedOwner=owner;watchedHost=matrix;lastWatchedClient=new WeakRef(client);
+    RCSNativeIdentities.setClient(client);
+    // Retain only the native client, never the DOM discovery context and its shadow roots.
+    const binding={client,owner};watchBinding=binding;
+    nativeCapture={...binding,pending:new Map(),snapshots:new Map(),task:null,recovery:null,incomplete:false,missing:new Set()};
+    watchedSignature=JSON.stringify(directoryContext(binding));
+    queueMicrotask(()=>pumpClassifier());
     // Native callbacks must never interrupt Reddit or write an event using a
     // replacement client's account. A queued old callback is ignored too.
     const guarded=operation=>(...values)=>{try{
-      if(watchedClient!==client || watchedOwner!==owner || client.getUserId()!==owner || matrixHost && (!matrixHost.isConnected || matrixHost.client!==client))return;
+      if(watchBinding!==binding || !liveClient())return;
       operation(...values);
     }catch{ /* Future native event models must fail open. */ }};
     if(client.on)for(const type of ['sync','Room','deleteRoom','accountData','Room.name','Room.timeline','Room.localEchoUpdated','Room.receipt','Room.unreadNotifications','Room.redaction','Thread.update','Thread.newReply','RoomState.events','RoomMember.name','event']) {
@@ -149,7 +167,7 @@
           // Receipts arrive in bursts (every member, every room); one snapshot of every room per burst is enough.
           if(!activityTimer)activityTimer=setTimeout(()=>{
             activityTimer=null;
-            guarded(()=>document.dispatchEvent(new CustomEvent('rcs-conversation-activity',{detail:JSON.stringify(directoryContext(ctx))})))();
+            guarded(()=>document.dispatchEvent(new CustomEvent('rcs-conversation-activity',{detail:JSON.stringify(directoryContext(binding))})))();
           },100);
           return;
         }
@@ -158,18 +176,21 @@
           if(['Room.timeline','Room.localEchoUpdated','Room.redaction','RoomState.events'].includes(type))nativeHistoryEvent(values[0],values[1]?.roomId);
           if(type==='Thread.update' || type==='Thread.newReply'){
             const thread=values.find(value=>value?.rootEvent),root=thread?.rootEvent;
-            if(root)nativeHistoryEvent(root,thread.roomId);
-            seedNativeTimelines(ctx);
+            const roomId=thread?.roomId || root?.getRoomId?.() || root?.event?.room_id || root?.room_id;
+            if(root)nativeHistoryEvent(root,roomId);
+            const native=roomId && client.getRoom?.(roomId);
+            if(native?.roomId===roomId && typeof native?.getThreads==='function')captureNativeRoom(binding,native);
+            else seedNativeTimelines(binding);
           }
-          if(type==='sync'){seedNativeTimelines(ctx);announceNativeCache(ctx);}
-          if(type==='Room')captureNativeRoom(ctx,values[0]);
+          if(type==='sync'){seedNativeTimelines(binding);announceNativeCache(binding);}
+          if(type==='Room')captureNativeRoom(binding,values[0]);
           signalDirectory(type,...values);
         }
       });
       nativeHandlers.set(type,handler);client.on(type,handler);
     }
-    seedNativeTimelines(ctx);
-    announceNativeCache(ctx);
+    seedNativeTimelines(binding);
+    announceNativeCache(binding);
   }
   function announceNativeCache(ctx,{force=false}={}) {
     const state=nativeCapture;if(state?.client!==ctx.client || state.owner!==ctx.client.getUserId())return;
@@ -228,12 +249,20 @@
     if(raw.unsigned?.redacted_because)saved.unsigned={...saved.unsigned,redacted_because:{event_id:raw.unsigned.redacted_because.event_id}};
     return saved;
   }
+  function* compactCacheValues(values,roomId,client) {
+    for(const value of values){
+      const saved=compactCacheEvent(value,roomId,client);
+      if(saved)yield {saved,signature:JSON.stringify(saved)};
+    }
+  }
   function publishCache(ctx,roomId,values=[],source='native',coverage,identityIds=[],span) {
+    return publishCacheBatch(ctx,roomId,compactCacheValues(values,roomId,ctx.client),source,coverage,identityIds,span);
+  }
+  function publishCacheBatch(ctx,roomId,values,source,coverage,identityIds=[],span) {
     const owner=ctx.client.getUserId();if(!owner || owner!==watchedOwner || ctx.client!==watchedClient)return;
     const events=[],ids=new Set(identityIds),identities=[];
-    for(const value of values) {
-      const saved=compactCacheEvent(value,roomId,ctx.client);if(!saved)continue;
-      const key=saved.room_id+'\n'+saved.event_id,signature=JSON.stringify(saved);
+    for(const {saved,signature} of values) {
+      const key=saved.room_id+'\n'+saved.event_id;
       if(captureSignatures.get(key)!==signature){events.push(saved);captureSignatures.delete(key);captureSignatures.set(key,signature);}
       if(saved.sender)ids.add(saved.sender);
     }
@@ -280,38 +309,51 @@
     const live=native.getLiveTimeline?.()?.getEvents?.() || native.getUnfilteredTimelineSet?.()?.getEvents?.() || [];
     return [...live,...(native.getThreads?.() || []).flatMap(thread=>[thread.rootEvent,...(thread.events || thread.getEvents?.() || [])].filter(Boolean))];
   }
+  const nativeEventRef=value=>value?.event || value;
+  const weakEventRef=value=>value && typeof value==='object'?new WeakRef(value):value;
+  const readEventRef=value=>value instanceof WeakRef?value.deref():value;
+  function clearBaseline(state) {
+    const baseline=clearBaselines.get(state.client);
+    return baseline?.owner===state.owner?baseline.rooms:null;
+  }
   function runNativeCapture(state) {
     if(state.task || state!==nativeCapture)return state.task;
-    const matrixHost=state.ctx.find?.('rs-matrix-client');
-    const guard=()=>{if(state!==nativeCapture || watchedClient!==state.client || state.client.getUserId()!==state.owner || matrixHost && (!matrixHost.isConnected || matrixHost.client!==state.client))throw problem('Reddit account changed. Please retry.');};
+    const guard=()=>{if(state!==nativeCapture || !liveClient())throw problem('Reddit account changed. Please retry.');};
     state.task=Promise.resolve().then(async()=>{
       let units=0,bytes=0;
       const barrier=async(force=false)=>{if(!units && !force)return;if(!cacheConsumerReady){units=0;bytes=0;return;}await flushNativeCache({owner:state.owner},guard);units=0;bytes=0;};
       do {
       while(state.pending.size){
         guard();const [key,job]=state.pending.entries().next().value;state.pending.delete(key);
-        if(job.identities){const sent=publishCache(state.ctx,undefined,[],'cache-recovery',undefined,job.identities);if(sent){units++;bytes+=sent.bytes;}if(bytes>=512*1024)await barrier();continue;}
-        let values,refs;try{values=job.history ? [...job.history.events.values()] : nativeRoomEvents(job.native);refs=values.map(value=>value?.event || value);if(job.native)rememberMembers(stateOf(cachedRoom(job.native)),state.ctx);}catch{state.incomplete=true;continue;}
+        if(job.identities){const sent=publishCache(state,undefined,[],'cache-recovery',undefined,job.identities);if(sent){units++;bytes+=sent.bytes;}if(bytes>=512*1024)await barrier();continue;}
+        let values;try{values=job.history ? [...job.history.events.values()] : nativeRoomEvents(job.native);if(job.native)rememberMembers(stateOf(cachedRoom(job.native)),state);}catch{state.incomplete=true;continue;}
         const before=state.snapshots.get(key);
         // Remember native event references, not a second copy of every body.
         // Edits/redactions are independently captured by the native handlers.
-        if(!job.force && before?.length===refs.length && refs.every((value,i)=>value===before[i]))continue;
+        if(!job.force && before?.length===values.length && values.every((value,i)=>nativeEventRef(value)===before[i]))continue;
+        const cleared=clearBaseline(state),clearedRoom=!before && cleared?.get(key);
+        const refs=values.map(nativeEventRef);
+        if(!job.force && clearedRoom?.length===refs.length && refs.every((ref,i)=>ref===readEventRef(clearedRoom[i]))){
+          state.snapshots.set(key,refs);continue;
+        }
         try {
           let chunk=[],chunkBytes=0;
           const send=async()=>{
             if(!chunk.length)return;
-            const sent=publishCache(state.ctx,job.roomId,chunk,job.force?'cache-recovery':'native-memory');
-            for(const value of chunk){const raw=compactCacheEvent(value,job.roomId,state.client);if(raw){const key=raw.room_id+'\n'+raw.event_id;if(captureSignatures.has(key))state.missing.delete(key);}}
+            const sent=publishCacheBatch(state,job.roomId,chunk,job.force?'cache-recovery':'native-memory');
+            for(const {saved} of chunk){const key=saved.room_id+'\n'+saved.event_id;if(captureSignatures.has(key))state.missing.delete(key);}
             chunk=[];chunkBytes=0;
             if(sent){units+=Math.max(1,sent.events);bytes+=sent.bytes;}
             if(units>=200 || bytes>=512*1024)await barrier();
           };
           for(const value of values){
-            guard();if(job.wanted && !job.wanted.has((value?.event || value)?.event_id))continue;const size=JSON.stringify(compactCacheEvent(value,job.roomId,state.client) || {}).length*2;
+            guard();if(job.wanted && !job.wanted.has((value?.event || value)?.event_id))continue;
+            const saved=compactCacheEvent(value,job.roomId,state.client);if(!saved)continue;
+            const signature=JSON.stringify(saved),size=signature.length*2;
             if(chunk.length && (chunk.length>=200 || chunkBytes+size>256*1024))await send();
-            chunk.push(value);chunkBytes+=size;
+            chunk.push({saved,signature});chunkBytes+=size;
           }
-          await send();if(!job.force || !job.wanted)state.snapshots.set(key,refs);
+          await send();if(!job.force || !job.wanted){state.snapshots.set(key,refs);cleared?.delete(key);}
         }catch(error){state.pending.set(key,job);throw error;}
       }
       await barrier(Boolean(state.recovery));guard();
@@ -331,6 +373,8 @@
     const state=nativeCapture;if(state?.client!==ctx.client || state.owner!==ctx.client.getUserId())return;
     const rooms=ctx.client.getRooms?.() || [],ids=new Set(rooms.map(room=>room.roomId));
     for(const id of state.snapshots.keys())if(!ids.has(id))state.snapshots.delete(id);
+    const cleared=clearBaseline(state);
+    for(const id of cleared?.keys() || [])if(!ids.has(id))cleared.delete(id);
     for(const native of rooms)if(native?.roomId)state.pending.set(native.roomId,{native,roomId:native.roomId,force});
     state.failed=false;return runNativeCapture(state);
   }
@@ -365,10 +409,8 @@
     const db=ctx.client.store?.backend?.db;
     if(db?.name!=='reddit-chat-store' || !db.objectStoreNames?.contains('room_timeline'))return {available:false,retryable:true,imported:0};
     let lastKey,imported=0,scanned=0,malformed=false;
-    const matrixHost=ctx.find?.('rs-matrix-client');
     const guard=()=>{
       check(job);
-      if(matrixHost && (!matrixHost.isConnected || matrixHost.client!==ctx.client) || ctx.client.getUserId()!==job.owner)throw problem('Reddit account changed. Please retry.');
       if(ctx.client.store?.backend?.db!==db)throw problem('Reddit’s local cache connection changed. Saved messages remain available; try Refresh.');
     };
     while(true) {
@@ -410,9 +452,9 @@
         const event=compactCacheEvent(row.content,row.room_id,ctx.client);
         if(!event){malformed=true;continue;}
         if(!rooms.has(event.room_id))rooms.set(event.room_id,[]);
-        rooms.get(event.room_id).push(event);imported++;
+        rooms.get(event.room_id).push({saved:event,signature:JSON.stringify(event)});imported++;
       }
-      for(const [roomId,events]of rooms)publishCache(ctx,roomId,events,'native-indexeddb');
+      for(const [roomId,events]of rooms)publishCacheBatch(ctx,roomId,events,'native-indexeddb');
       if(job.request.awaitCache===true)await flushNativeCache(job,guard);
       guard();
       emit(job.request,{progress:{loaded:imported,scanned,label:'Saving messages already cached by Reddit…'}});
@@ -513,7 +555,7 @@
     const waiter=trafficWaiters.get(value?.id);if(!waiter)return;
     trafficWaiters.delete(value.id);clearTimeout(waiter.timer);
     // A permit granted after this page stopped waiting would hold its slot until it expired: hand it back.
-    if(waiter.late){if(value.ok && value.token)traffic('traffic-release',waiter.job,{token:value.token}).catch(()=>{});return;}
+    if(waiter.late){if(value.ok && value.token)traffic('traffic-release',{owner:waiter.owner},{token:value.token}).catch(()=>{});return;}
     value.ok ? waiter.resolve(value) : waiter.reject(problem('Request coordination unavailable. Please retry.'));
   });
   function traffic(action,job,parameters={}) {
@@ -522,7 +564,7 @@
       const timer=setTimeout(()=>{
         if(action==='traffic-acquire'){
           // Keep listening a while for a late grant, so it can be released.
-          trafficWaiters.set(id,{late:true,job,timer:setTimeout(()=>trafficWaiters.delete(id),130000)});
+          trafficWaiters.set(id,{late:true,owner:job.owner,timer:setTimeout(()=>trafficWaiters.delete(id),130000)});
         }else trafficWaiters.delete(id);
         reject(problem('Request coordination timed out. Please retry.'));
       },Number(window.__rcsTrafficTimeoutMs) || 10000);
@@ -640,7 +682,7 @@
     for(let start=0;start<missing.length;start+=200) {
       if(optional && Date.now()>=metadataDeadline)return entries;
       check(job);const batch=missing.slice(start,start+200);
-      const metadataJob=optional ? {ctx:job.ctx,owner:job.owner,priority:job.priority,timeoutMs:Math.max(1,metadataDeadline-Date.now()),optional:true,get cancelled(){return job.cancelled;}} : job;
+      const metadataJob=optional ? {binding:job.binding,owner:job.owner,priority:job.priority,timeoutMs:Math.max(1,metadataDeadline-Date.now()),optional:true,get cancelled(){return job.cancelled;}} : job;
       let results;
       try {results=await retryRead(async()=>{
         const values=await Promise.allSettled(batch.map(matrixId=>{
@@ -1114,14 +1156,14 @@
       const spanMeta={p:parent,lo:touchesPersisted?Math.min(oldest,topSpan.lo):oldest,hi:Math.max(reqHi,newest),tLo,tHi,bottom:Boolean(done && (!overlap || wasDone)),src:'history',...(overlapLegacy?{overlapLegacy:true}:{})};
       publishCache(ctx,room.roomId,data.events,'history-page',room.dirtyThreads.size ? {complete:false,dateComplete:false} : undefined,[],spanMeta);
       if(done) {
-        scope.done=true;
+        histories.finishScope(room,parent);
         if(!parent || (room.roots.get(parent)?.count || 0)<=rootCount)room.dirtyThreads.delete(parent);
       } else if(touchesPersisted) {
         // Head gap closed: jump straight below the persisted span without refetching its messages.
         const jumped=topSpan.lo-1;
         if(topSpan.tLo>0)scope.coveredStart=Math.min(scope.coveredStart,topSpan.tLo);
         topSpan=null;
-        if(jumped<0){scope.done=true;}
+        if(jumped<0){histories.finishScope(room,parent);}
         else{cursor=jumped;scope.cursor=scope.cursor===null ? jumped : Math.min(scope.cursor,jumped);}
       } else {
         const next=refreshing && overlap && resumeCursor!==null ? Math.min(oldest-1,resumeCursor) : oldest-1;
@@ -1180,7 +1222,7 @@
       if(savedCov){
         room.persistedCoverage=savedCov;
         for(const [p,info] of Object.entries(savedCov.threads || {})){
-          if(!room.roots.has(p))room.roots.set(p,{id:info.root,count:info.count});
+          if(!room.roots.has(p))histories.rememberThread(room,p,info.root,info.count);
           const tspans=savedCov.spans?.[p] || [];
           const ttop=tspans.length?tspans[tspans.length-1]:null;
           if(!ttop?.bottom || info.dirty)room.dirtyThreads.add(p);
@@ -1206,7 +1248,7 @@
     }
     load.jobs.add(job);
     if(!load.promise) {
-      const shared={ctx,owner:job.owner,priority:'interactive',loaded:room.events.size,
+      const shared={binding:job.binding,owner:job.owner,priority:'interactive',loaded:room.events.size,
         dateStart:()=>Math.min(...[...load.jobs].filter(job=>!job.cancelled).map(job=>historyDateStart(job.requestedDates))),
         get cancelled(){return ![...load.jobs].some(job=>!job.cancelled);},
         request:{broadcast:fields=>{for(const subscriber of load.jobs)if(!subscriber.cancelled)emit(subscriber.request,fields);}}};
@@ -1631,20 +1673,29 @@
   }
   document.addEventListener('rcs-message-cache-reset',event=>{
     let value;try{value=JSON.parse(event.detail);}catch{return;}
-    if(!watchedOwner || value?.owner!==watchedOwner || watchedClient?.getUserId?.()!==watchedOwner)return;
-    captureSignatures.clear();capturedIdentities.clear();capturedCoverage.clear();histories.clear();backfillFreshnessAt.delete(watchedOwner);
-    const ctx=nativeCapture?.ctx;
-    if(ctx){
+    const owner=value?.owner,client=lastWatchedClient?.deref();
+    if(!owner || owner!==knownOwner || client && client.getUserId?.()!==owner)return;
+    captureSignatures.clear();capturedIdentities.clear();capturedCoverage.clear();histories.clear();backfillFreshnessAt.delete(owner);
+    if(nativeCapture){
       // Clear cancels pre-clear snapshot jobs. Existing tails form the baseline;
       // unchanged syncs must not immediately refill data the user just cleared.
-      nativeCapture={client:watchedClient,owner:watchedOwner,ctx,pending:new Map(),snapshots:new Map(),task:null,recovery:null,incomplete:false,missing:new Set()};
-      for(const room of watchedClient.getRooms?.() || [])try{nativeCapture.snapshots.set(room.roomId,nativeRoomEvents(room).map(value=>value?.event || value));}catch{}
+      nativeCapture={...watchBinding,pending:new Map(),snapshots:new Map(),task:null,recovery:null,incomplete:false,missing:new Set()};
     }
+    if(!client)return;
+    // A reconnect of the same native client must honor the clear too, without
+    // keeping its event objects alive while its host is detached.
+    const rooms=new Map();
+    for(const room of client.getRooms?.() || [])try{
+      const refs=nativeRoomEvents(room).map(nativeEventRef);
+      nativeCapture?.snapshots.set(room.roomId,refs);
+      if(refs.length)rooms.set(room.roomId,refs.map(weakEventRef));
+    }catch{}
+    clearBaselines.set(client,{owner,rooms});
   });
   document.addEventListener('rcs-message-cache-rejected',event=>{
     let value;try{value=JSON.parse(event.detail);}catch{return;}
     const state=nativeCapture;
-    if(!state || value?.owner!==state.owner || state.client.getUserId()!==state.owner || typeof value.id!=='string' || !Array.isArray(value.events))return;
+    if(!state || value?.owner!==state.owner || !liveClient() || typeof value.id!=='string' || !Array.isArray(value.events))return;
     const rooms=new Set(value.roomId?[value.roomId]:[]),wanted=new Map();
     for(const item of value.events){if(typeof item.roomId!=='string' || typeof item.id!=='string')continue;rooms.add(item.roomId);if(!wanted.has(item.roomId))wanted.set(item.roomId,new Set());wanted.get(item.roomId).add(item.id);state.missing.add(item.roomId+'\n'+item.id);captureSignatures.delete(item.roomId+'\n'+item.id);if(item.sender)capturedIdentities.delete(item.sender);}
     const identities=Array.isArray(value.identities)?value.identities:[];
@@ -1660,16 +1711,27 @@
     }
     state.failed=false;runNativeCapture(state);
   });
-  // Finding the floating chat shell scans every div, in every frame of every Reddit page.
-  // The 1.5 s tick stays, but it skips ticks (up to 20, i.e. 30 s) until chat exists:
-  // a chat component connecting (rcs-chat-present) or a chat starting resets it.
+  // While a native client is attached, only validate the host and check its cache readiness.
+  // A connecting native component wakes discovery; the heartbeat covers delayed hydration.
   let chatSeen=false,observeTicks=1,skipTicks=0;
-  const observeNativeClient=()=>{
-    let live=chatSeen;
-    try{const ctx=context();if(ctx.client?.getUserId?.()){live=true;watchDirectory(ctx);announceNativeCache(ctx);}}catch{ /* Native discovery is optional and fail open. */ }
-    observeTicks=live ? 1 : Math.min(observeTicks*2,20);skipTicks=observeTicks-1;
+  const observeNativeClient=(discover=false)=>{
+    let present=false;
+    try{
+      const client=liveClient();
+      if(!client && watchedClient)detachNativeClient();
+      if(client && !discover){present=true;announceNativeCache(watchBinding);}
+      else{
+        const ctx=context();present=Boolean(ctx.matrix) || Boolean(client);
+        if(ctx.client?.getUserId?.()){watchDirectory(ctx);announceNativeCache(ctx);}
+      }
+    }catch{ /* Native discovery is optional and fail open. */ }
+    observeTicks=present ? 1 : Math.min(observeTicks*2,20);skipTicks=observeTicks-1;
   };
-  const noteChat=()=>{if(chatSeen)return;chatSeen=true;observeTicks=1;setTimeout(observeNativeClient,0);document.dispatchEvent(new CustomEvent('rcs-chat-present'));};
+  const noteChat=name=>{
+    if(!chatSeen){chatSeen=true;document.dispatchEvent(new CustomEvent('rcs-chat-present'));}
+    else if(name!=='rs-matrix-client')return;
+    observeTicks=1;setTimeout(()=>observeNativeClient(true),0);
+  };
   if(globalThis.customElements?.define) {
     const define=customElements.define;
     customElements.define=function(name,constructor,...args){
@@ -1677,7 +1739,14 @@
         const proto=name.startsWith('rs-') && constructor?.prototype,original=proto && proto.connectedCallback;
         if(typeof original==='function' && !Object.hasOwn(proto,'__rcsChatSeen')) {
           Object.defineProperty(proto,'__rcsChatSeen',{value:true});
-          proto.connectedCallback=function(...args){noteChat();return original.apply(this,args);};
+          proto.connectedCallback=function(...args){noteChat(name);return original.apply(this,args);};
+        }
+        if(name==='rs-matrix-client' && proto){
+          const disconnected=proto.disconnectedCallback;
+          proto.disconnectedCallback=function(...args){
+            if(this===watchedHost)queueMicrotask(()=>{if(this===watchedHost && !this.isConnected)observeNativeClient();});
+            return disconnected?.apply(this,args);
+          };
         }
       }catch{ /* Never block Reddit's own component registration. */ }
       return define.call(this,name,constructor,...args);
@@ -1685,7 +1754,7 @@
   }
   setTimeout(observeNativeClient,0);
   setInterval(()=>{if(skipTicks>0)skipTicks--;else observeNativeClient();},1500);
-  document.addEventListener('rcs-chat-starting',()=>{chatSeen=true;observeNativeClient();});
+  document.addEventListener('rcs-chat-starting',()=>{chatSeen=true;observeNativeClient(true);});
   document.addEventListener(requestEvent,async event => {
     let request;
     try { request=JSON.parse(event.detail); } catch { return; }
@@ -1705,10 +1774,10 @@
       if(request.method==='jump' && request.eventId.startsWith('~'))throw problem('This result has a temporary Reddit message ID. Open the conversation to check its send status.');
       if(['identity-context','identity-snapshot','cache-native-history'].includes(request.method)) {
         const quick=request.method==='identity-context' && liveClient();
-        const ctx=quick?{client:quick,find:()=>null,all:()=>[]}:await identityReady(job),owner=ctx.client.getUserId();if(!quick)watchDirectory(ctx);
+        const ctx=quick?{client:quick}:await identityReady(job),owner=ctx.client.getUserId();if(!quick)watchDirectory(ctx);
         if(request.method==='cache-native-history') {
           if(request.owner && request.owner!==owner)throw problem('Reddit account changed. Please retry.');
-          job.ctx=ctx;job.owner=owner;job.stage='Reddit’s local message cache';
+          job.binding=watchBinding;job.owner=owner;job.stage='Reddit’s local message cache';
           emit(request,{result:await importNativeHistory(ctx,job)});return;
         }
         if(request.method==='identity-snapshot') {
@@ -1724,9 +1793,8 @@
         emit(request,{result:{owner,selfIdentity:{id:owner,name:'You',self:true,avatar}}});return;
       }
       const ctx=await ready(job,{navigation:['open','jump'].includes(request.method)});const owner=ctx.client.getUserId();let result;
-      job.ctx=ctx;job.owner=owner;
-      if(knownOwner!==owner){knownConversations.clear();knownRoomStates.clear();histories.clear();knownOwner=owner;}
       watchDirectory(ctx);
+      job.binding=watchBinding;job.owner=owner;
       if(request.method==='directory-context')result=directoryContext(ctx);
       else if(request.method==='native-bindings')result=nativeBindings(ctx,request);
       else if(request.method==='classify-accounts')result=queueClassification(ctx,request);

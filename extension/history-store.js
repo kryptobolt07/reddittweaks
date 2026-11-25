@@ -5,7 +5,7 @@
     get(owner,roomId,create=true) {
       const key=owner+'\n'+roomId;
       let room=this.rooms.get(key);
-      if(!room && create)room={owner,roomId,events:new Map(),scopes:new Map(),removed:new Set(),edits:new Map(),roots:new Map(),threadReplies:new Map(),dirtyThreads:new Set(),loading:null,complete:false};
+      if(!room && create)room={owner,roomId,events:new Map(),scopes:new Map(),removed:new Set(),edits:new Map(),roots:new Map(),threadParents:new Map(),unfinishedThreads:0,threadReplies:new Map(),dirtyThreads:new Set(),loading:null,complete:false};
       if(!room)return;
       if(create){this.rooms.delete(key);this.rooms.set(key,room);this.trim();}
       return room;
@@ -20,6 +20,24 @@
     scope(room,parent='') {
       if(!room.scopes.has(parent))room.scopes.set(parent,{cursor:null,done:false,verifiedIds:new Set(),headVerified:false,coveredStart:Infinity,dateOrderSafe:true});
       return room.scopes.get(parent);
+    }
+    finishScope(room,parent) {
+      const scope=this.scope(room,parent);
+      if(!scope.done && room.roots.has(parent))room.unfinishedThreads--;
+      scope.done=true;
+    }
+    rememberThread(room,parent,id,count) {
+      const before=room.roots.get(parent);
+      if(!before && !room.scopes.get(parent)?.done)room.unfinishedThreads++;
+      if(!before || before.id!==id){
+        if(before){
+          const parents=room.threadParents.get(before.id);
+          parents.delete(parent);if(!parents.size)room.threadParents.delete(before.id);
+        }
+        if(!room.threadParents.has(id))room.threadParents.set(id,new Set());
+        room.threadParents.get(id).add(parent);
+      }
+      room.roots.set(parent,{id,count});
     }
     accept(room,event) {
       if(!event?.event_id || event.event_id.startsWith('~'))return [];
@@ -41,18 +59,18 @@
       const count=event.unsigned?.['m.relations']?.['m.thread']?.count;
       if(count>0 && event.seq_id!==undefined) {
         const parent=String(event.seq_id);
-        room.roots.set(parent,{id:event.event_id,count});
+        this.rememberThread(room,parent,event.event_id,count);
         const replies=room.threadReplies.get(event.event_id)?.size || 0;
         if(replies<count)room.dirtyThreads.add(parent);
       }
-      if(relation?.rel_type==='m.thread')for(const [parent,root]of room.roots)if(root.id===relation.event_id) {
-        const replies=room.threadReplies.get(root.id)?.size || 0;
-        if(replies>=root.count)room.dirtyThreads.delete(parent);
+      if(relation?.rel_type==='m.thread')for(const parent of room.threadParents.get(relation.event_id) || []) {
+        const replies=room.threadReplies.get(relation.event_id)?.size || 0;
+        if(replies>=room.roots.get(parent).count)room.dirtyThreads.delete(parent);
       }
       this.readiness(room);return [...changed];
     }
     readiness(room) {
-      room.complete=Boolean(room.scopes.get('')?.done) && [...room.roots.keys()].every(parent=>room.scopes.get(parent)?.done) && !room.dirtyThreads.size;
+      room.complete=Boolean(room.scopes.get('')?.done) && !room.unfinishedThreads && !room.dirtyThreads.size;
       return room.complete;
     }
     project(room,resolve,ids,media=()=>({})) {

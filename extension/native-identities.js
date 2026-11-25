@@ -1,17 +1,20 @@
 /* Page-world presentation hooks. Original profile objects and account flags stay intact. */
 (() => {
   let owner='',people=new Map(),rooms=new Map(),signature='';
-  const hooks=[];
-  const hostsToRefresh=new Set();
-  let contextProvider=null,identityClient=null,pending=false;
+  const hookTargets=new WeakMap(),hookRefs=new Set();
+  const hookRegistry=new FinalizationRegistry(ref=>hookRefs.delete(ref));
+  let contextProvider=null,identityClient=null,identityAccount='',pending=false;
   let eventBinder=null;const boundEventHosts=new WeakSet();
   const placeholder=value=>typeof value==='string' && ['[deleted]','Someone'].includes(value.trim());
   // "…" only covers a short recovery window; after that Reddit's own label shows.
   const pendingMs=6000;let pendingSince=0,pendingTimer=null;
   const waiting=()=>pending && Date.now()-pendingSince<pendingMs;
+  function refreshHosts() {
+    for(const host of contextProvider?.()?.all('*') || [])if(host.isConnected && host.tagName.startsWith('RS-'))host.requestUpdate?.();
+  }
   function setPending(value){
     const next=Boolean(value);if(next && !pending)pendingSince=Date.now();pending=next;clearTimeout(pendingTimer);
-    if(pending)pendingTimer=setTimeout(()=>{for(const host of hostsToRefresh)if(host.isConnected)host.requestUpdate?.();},pendingMs+50);
+    if(pending)pendingTimer=setTimeout(refreshHosts,pendingMs+50);
   }
   // A deleted account's membership record in a room Reddit already loaded
   // usually keeps the name and avatar it had. Use it when no saved identity
@@ -85,7 +88,6 @@
       // Supply presentation inputs only; preserve native membership/profile flags.
       return avatar && !this.isCommunityAgent ? original.apply(new Proxy(this,{get:(target,key)=>key==='icon'?avatar:key==='snoovatar'?null:Reflect.get(target,key,target)}),args) : original.apply(this,args);
     }) || installed;
-    if(typeof host.requestUpdate==='function')hostsToRefresh.add(host);
     return installed;
   }
   function configure(getContext,bindEvent) {
@@ -106,41 +108,55 @@
     for(const host of getContext().all('*').filter(e=>e.tagName.startsWith('RS-')))bindHost(host);
   }
   function clear() {
-    owner='';people.clear();rooms.clear();signature='';setPending(false);identityClient=null;stateNames.clear();seenPlaceholder.clear();
-    for(const {target,key,original,wrapper}of hooks.splice(0))if(target[key]===wrapper)target[key]=original;
-    for(const host of hostsToRefresh)if(host.isConnected)host.requestUpdate?.();
-    hostsToRefresh.clear();
+    owner='';people.clear();rooms.clear();signature='';setPending(false);identityClient=null;identityAccount='';stateNames.clear();seenPlaceholder.clear();
+    for(const ref of hookRefs){
+      hookRegistry.unregister(ref);
+      const target=ref.deref();if(!target)continue;
+      for(const [key,{original,wrapper}] of hookTargets.get(target))if(target[key]===wrapper)target[key]=original;
+      hookTargets.delete(target);
+    }
+    hookRefs.clear();refreshHosts();
+  }
+  function setClient(client) {
+    const account=client?.getUserId?.();
+    if(account && account!==identityAccount){stateNames.clear();seenPlaceholder.clear();identityAccount=account;}
+    identityClient=client;
   }
   function hook(object,key,replace) {
     if(!object || typeof object[key]!=='function')return false;
     let target=object;
     while(!Object.hasOwn(target,key) && Object.getPrototypeOf(target))target=Object.getPrototypeOf(target);
-    if(hooks.some(h=>h.target===target && h.key===key))return false;
+    let methods=hookTargets.get(target);
+    if(methods?.has(key))return false;
     const original=target[key];
     const wrapper=function(...args){return replace.call(this,original,args);};
     try{target[key]=wrapper;}catch{return false;}
     if(target[key]!==wrapper)return false;
-    hooks.push({target,key,original,wrapper});return true;
+    if(!methods){
+      methods=new Map();hookTargets.set(target,methods);
+      const ref=new WeakRef(target);hookRefs.add(ref);hookRegistry.register(target,ref,ref);
+    }
+    methods.set(key,{original,wrapper});return true;
   }
   function update(ctx,request) {
-    if(!contextProvider)contextProvider=()=>ctx;
     const current=ctx.client.getUserId();
     if(request.owner && request.owner!==current)return;
     if(owner && owner!==current)clear();
-    owner=current;identityClient=ctx.client;
+    owner=current;setClient(ctx.client);
     const valid=id=>typeof id==='string' && /^@[^:\s]+:[^\s]+$/.test(id) && id!==current;
     people=new Map((Array.isArray(request.people)?request.people:[]).filter(p=>valid(p?.id) && /^[A-Za-z0-9_-]{3,20}$/.test(p.name || '')).map(p=>{const avatar=safeAvatar(p.avatar),previous=people.get(p.id);return [p.id,previous?.name===p.name && previous.avatar===avatar?previous:{name:p.name,avatar,avatarView:{src:avatar,isSnoovatar:false}}];}));
     rooms=new Map((Array.isArray(request.rooms)?request.rooms:[]).filter(r=>typeof r?.id==='string' && r.id.length<=1000 && people.has(r.person)).map(r=>[r.id,people.get(r.person)]));
     const next=JSON.stringify([[...people],[...rooms]]),changed=pending!==Boolean(request.restoring) || signature!==next;signature=next;setPending(request.restoring);
     const hosts=ctx.all('*').filter(e=>e.tagName.startsWith('RS-'));
-    for(const host of hostsToRefresh)if(!host.isConnected)hostsToRefresh.delete(host);
     for(const host of hosts) {
       const installed=bindHost(host);
       if(changed || installed)host.requestUpdate?.();
     }
-    return {hooks:hooks.length};
+    let hooks=0;
+    for(const ref of hookRefs){const target=ref.deref();if(target)hooks+=hookTargets.get(target).size;else hookRefs.delete(ref);}
+    return {hooks};
   }
   document.addEventListener('rcs-native-identities-clear',clear);
   document.addEventListener('rcs-native-identities-start',()=>setPending(true));
-  globalThis.RCSNativeIdentities=Object.freeze({update,clear,configure});
+  globalThis.RCSNativeIdentities=Object.freeze({update,clear,configure,setClient});
 })();
