@@ -425,11 +425,11 @@
       if(!detach)this.scopeSwitcher?.remove();this.scopeSwitcher=null;
       this.searchHidden=new Map();if(!detach)this.searchFeed?.remove();this.searchFeed=null;this.searchResumeMenu=null;this.searchRestoringMenu=false;
       // detach: stop all work but leave every change inside the retained feed.
-      const undo=!detach;if(undo)for(const node of this.collapsedNativeRules || [])node.removeAttribute('data-rt-rule-collapsed');this.collapsedNativeRules=new Set();if(undo){for(const node of this.mergePendingNodes || [])node.removeAttribute('data-rt-order-pending');this.feed?.removeAttribute('data-rt-merge-waiting');}this.mergePendingNodes=new Set();this.publishedNative=new WeakSet();if(undo){this.feed?.removeAttribute('data-rt-activity');this.feed?.removeAttribute('data-rt-loading-owner');}this.feedPresentationObserver?.disconnect();this.feedPresentationObserver=null;if(undo)for(const style of this.nativeLoadingStyles || [])style.remove();this.nativeLoadingStyles=new Set();if(undo)for(const [node,hidden] of this.filteredNative || []){node.hidden=hidden;node.removeAttribute('data-rt-filter-hidden');node.removeAttribute('data-rt-activity-match');const original=this.virtualNodes?.get(node);if(original){original.hidden=hidden;original.removeAttribute('data-rt-filter-hidden');original.removeAttribute('data-rt-activity-match');}}if(undo){this.clearActivityMenu();this.controlsTarget?.remove();}else this.detachActivityMenu();this.controlsTarget=null;if(this.commentSort && undo){this.commentSort.node.hidden=this.commentSort.hidden;this.commentSort.node.removeAttribute('data-rt-comment-sort-suppressed');this.commentSort=null;}this.commentSort=null;this.activityArchiveAttempted=false;if(undo)this.activityEmpty?.remove();this.activityEmpty=null;this.activityFilter='all';this.filteredNative=new Map();this.postStatuses=new Map();if(undo){this.restoreRecoveredBodies();this.profileNavigation?.remove();}else this.forgetRecoveredBodies();if(!retainNavigation){this.profileNavigation=null;this.navigationLease=crypto.randomUUID();}else if(this.profileNavigation?.dataset.state==='loading')this.profileNavigation.dataset.state='idle';if(undo){this.archiveNotice?.removeAttribute('data-rt-archive-notice');this.archiveShell?.remove();document.querySelector('[data-rt-ui="blocked-unsupported"]')?.remove();}this.archiveNotice=this.archiveNoticeAnchor=this.archiveShell=this.archiveMain=this.archiveStats=this.mobileArchiveStats=this.avatarSlot=this.avatarPlaceholder=null;this.profileOverlay=false;this.profileTransition=false;this.presentedFeedNodes=null;this.archiveOnly=false;this.blockedProfile=false;this.blockedUseSearch=false;this.blockedListed=new Set();this.accountState='';this.generation=++generationSeq;this.recoveryObserver?.disconnect();this.recoveryObserver=null;this.recoveryObserved=new WeakSet();clearTimeout(this.recoveryTimer);this.recoveryTimer=null;clearTimeout(this.nativeResumeTimer);this.nativeObserver?.disconnect();this.batchObserver?.disconnect();this.batchObserver=null;this.nativeLoadingObserver?.disconnect();this.nativeLoadingObserver=null;this.nativeLoadingRoot=null;if(this.batchFrame)cancelAnimationFrame(this.batchFrame);this.batchFrame=null;this.activeProfileBatch=null;this.replyEnrichment=null;this.publishedCards=new Set();this.batchedProfile=false;this.batchInView=false;this.batchAutoPaused=false;this.forceProfileBatch=false;this.nativeBatch={active:0,queue:[]};this.nativeRetries=new WeakMap();this.postMetadata=new Map();this.replyContexts=new Map();this.replyAuthors=new Map();this.replyArchiveChecked=new Set();for(const c of this.controllers)c.abort();this.controllers.clear();if(this.emptyFeed && undo){this.emptyFeed.hidden=this.emptyWasHidden;this.emptyFeed.removeAttribute('data-rt-empty-suppressed');}this.emptyFeed=null;if(undo && !keepCards)for(const node of this.nodes.values()){const slot=this.feedSlot(node);if(slot!==node){
+      const undo=!detach;if(undo)for(const node of this.collapsedNativeRules || [])node.removeAttribute('data-rt-rule-collapsed');this.collapsedNativeRules=new Set();if(undo){for(const node of this.mergePendingNodes || [])node.removeAttribute('data-rt-order-pending');this.feed?.removeAttribute('data-rt-merge-waiting');}this.mergePendingNodes=new Set();this.publishedNative=new WeakSet();if(undo){this.feed?.removeAttribute('data-rt-activity');this.feed?.removeAttribute('data-rt-loading-owner');}this.feedPresentationObserver?.disconnect();this.feedPresentationObserver=null;if(undo)for(const style of this.nativeLoadingStyles || [])style.remove();this.nativeLoadingStyles=new Set();if(undo)for(const [node,hidden] of this.filteredNative || []){node.hidden=hidden;node.removeAttribute('data-rt-filter-hidden');node.removeAttribute('data-rt-activity-match');const original=this.virtualOriginal(node);if(original!==node){original.hidden=hidden;original.removeAttribute('data-rt-filter-hidden');original.removeAttribute('data-rt-activity-match');}}if(undo){this.clearActivityMenu();this.controlsTarget?.remove();}else this.detachActivityMenu();this.controlsTarget=null;if(this.commentSort && undo){this.commentSort.node.hidden=this.commentSort.hidden;this.commentSort.node.removeAttribute('data-rt-comment-sort-suppressed');this.commentSort=null;}this.commentSort=null;this.activityArchiveAttempted=false;if(undo)this.activityEmpty?.remove();this.activityEmpty=null;this.activityFilter='all';this.filteredNative=new Map();this.postStatuses=new Map();if(undo){this.restoreRecoveredBodies();this.profileNavigation?.remove();}else this.forgetRecoveredBodies();if(!retainNavigation){this.profileNavigation=null;this.navigationLease=crypto.randomUUID();}else if(this.profileNavigation?.dataset.state==='loading')this.profileNavigation.dataset.state='idle';if(undo){this.archiveNotice?.removeAttribute('data-rt-archive-notice');this.archiveShell?.remove();document.querySelector('[data-rt-ui="blocked-unsupported"]')?.remove();}this.archiveNotice=this.archiveNoticeAnchor=this.archiveShell=this.archiveMain=this.archiveStats=this.mobileArchiveStats=this.avatarSlot=this.avatarPlaceholder=null;this.profileOverlay=false;this.profileTransition=false;this.presentedFeedNodes=null;this.archiveOnly=false;this.blockedProfile=false;this.blockedUseSearch=false;this.blockedListed=new Set();this.accountState='';this.generation=++generationSeq;this.recoveryObserver?.disconnect();this.recoveryObserver=null;this.recoveryObserved=new WeakSet();clearTimeout(this.recoveryTimer);this.recoveryTimer=null;clearTimeout(this.nativeResumeTimer);this.nativeObserver?.disconnect();this.batchObserver?.disconnect();this.batchObserver=null;this.nativeLoadingObserver?.disconnect();this.nativeLoadingObserver=null;this.nativeLoadingRoot=null;if(this.batchFrame)cancelAnimationFrame(this.batchFrame);this.batchFrame=null;this.activeProfileBatch=null;this.replyEnrichment=null;this.publishedCards=new Set();this.batchedProfile=false;this.batchInView=false;this.batchAutoPaused=false;this.forceProfileBatch=false;this.nativeBatch={active:0,queue:[]};this.nativeRetries=new WeakMap();this.postMetadata=new Map();this.replyContexts=new Map();this.replyAuthors=new Map();this.replyArchiveChecked=new Set();for(const c of this.controllers)c.abort();this.controllers.clear();if(this.emptyFeed && undo){this.emptyFeed.hidden=this.emptyWasHidden;this.emptyFeed.removeAttribute('data-rt-empty-suppressed');}this.emptyFeed=null;if(undo && !keepCards)for(const node of this.nodes.values()){const slot=this.feedSlot(node);if(slot!==node){
         // Reddit still owns this placeholder and may restore its detached node.
         // Retire both without removing a slot from its virtualization stack.
         slot.dataset.rtRetired='true';node.dataset.rtRetired='true';node.replaceChildren();node.hidden=true;
-      }else node.remove();}this.virtualNodes=new Map();if(undo){this.loading?.remove();this.host?.remove();this.rtChips?.remove();}this.loading=null;this.host=null;this.feed=null;this.context=null;this.live=new Map();this.commentOrigins=new Map();this.archived=new Map();if(undo)this.nodes.clear();else this.nodes=new Map();this.after=this.before=null;this.loaded=false;this.archiveLoaded=false;this.moreReddit=this.moreArchive=false;this.sourceErrors={};this.sourceNotices={};for(const entry of this.sourceRetries?.values() || [])clearTimeout(entry.timer);this.sourceRetries=new Map();this.metadataPending=0;this.recoveryChecked=new Set();this.recoveryActive=false;this.detailRecoveryStarted=false;this.busy=false;this.archiveBusy=false;this.initialPrefetchDone=false;this.sourcePending=new Set();this.sourceFrontiers=new Map();this.sourceStartedAt=new Map();this.nativeSeenAt=new WeakMap();this.initialNative=new WeakSet();clearTimeout(this.gateTimer);this.gateTimer=null;this.gateAt=Infinity;this.redditRun=null;this.archiveRun=null;this.verifyQueue=[];this.verifyQueued=new Set();this.verifyRetry=[];this.recoveredKeys=new Set();this.mountSeen=null;this.verifyActive=false;this.pages=0;this.afterByKind={};this.beforeByKind={};this.redMore={};this.archiveMore={};this.renderedPosts=[];this.summaryCounts=null;this.archiveSig=undefined;this.rtChips=null;this.rtSearch=null;this.rtAgg=null;this.rtMenu=null;}
+      }else node.remove();}this.virtualNodes=new Map();this.virtualSlots=new WeakMap();if(undo){this.loading?.remove();this.host?.remove();this.rtChips?.remove();}this.loading=null;this.host=null;this.feed=null;this.context=null;this.live=new Map();this.commentOrigins=new Map();this.archived=new Map();if(undo)this.nodes.clear();else this.nodes=new Map();this.after=this.before=null;this.loaded=false;this.archiveLoaded=false;this.moreReddit=this.moreArchive=false;this.sourceErrors={};this.sourceNotices={};for(const entry of this.sourceRetries?.values() || [])clearTimeout(entry.timer);this.sourceRetries=new Map();this.metadataPending=0;this.recoveryChecked=new Set();this.recoveryActive=false;this.detailRecoveryStarted=false;this.busy=false;this.archiveBusy=false;this.initialPrefetchDone=false;this.sourcePending=new Set();this.sourceFrontiers=new Map();this.sourceStartedAt=new Map();this.nativeSeenAt=new WeakMap();this.initialNative=new WeakSet();clearTimeout(this.gateTimer);this.gateTimer=null;this.gateAt=Infinity;this.redditRun=null;this.archiveRun=null;this.verifyQueue=[];this.verifyQueued=new Set();this.verifyRetry=[];this.recoveredKeys=new Set();this.mountSeen=null;this.verifyActive=false;this.pages=0;this.afterByKind={};this.beforeByKind={};this.redMore={};this.archiveMore={};this.renderedPosts=[];this.summaryCounts=null;this.archiveSig=undefined;this.rtChips=null;this.rtSearch=null;this.rtAgg=null;this.rtMenu=null;}
     // Leaving a profile parks its whole discovery state with its feed element.
     // Reddit keeps that element (cards included) and puts it back on Back with
     // its own scroll restore, so nothing is removed, copied or re-inserted:
@@ -506,6 +506,7 @@
     }
     adopt(feed,state){
       this.parked.delete(feed);for(const [key,value] of Object.entries(state))this[key]=value;
+      this.pruneVirtualSlots(this.virtualNodes.keys());
       if(!this.host.isConnected && !this.host.contains(feed))feed.before(this.host);
       // Work cut off by parking, resumed below.
       // A list search keeps its own progress (listState); it never sets the profile's loaded flags.
@@ -559,11 +560,60 @@
       this.batchObserver=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.target===this.loading){this.batchInView=entry.isIntersecting;if(entry.isIntersecting)this.continueProfile();}},{rootMargin:innerHeight*2+'px'});this.batchObserver.observe(this.loading);
     }
     trackVirtualization(records){
+      if(!this.feed)return;
+      let retired;
       for(const record of records){
-        if((record.target!==this.feed && !(record.target.matches?.('faceplate-batch') && record.target.parentElement===this.feed)) || record.addedNodes.length!==1 || record.removedNodes.length!==1)continue;
+        if(record.target!==this.feed && !(record.target.matches?.('faceplate-batch') && record.target.parentElement===this.feed))continue;
+        if(this.virtualNodes.size)for(const node of record.removedNodes){
+          if(node.nodeType!==1)continue;
+          if(this.virtualNodes.has(node))(retired ||= new Set()).add(node);
+          if(node.matches('faceplate-batch'))for(const slot of node.querySelectorAll('.virtualized-placeholder'))if(this.virtualNodes.has(slot))(retired ||= new Set()).add(slot);
+        }
+        if(record.addedNodes.length!==1 || record.removedNodes.length!==1)continue;
         const added=record.addedNodes[0],removed=record.removedNodes[0];
-        if(added.nodeType===1 && added.matches('.virtualized-placeholder') && added.parentElement===record.target){this.virtualNodes.set(added,removed);if(this.filteredNative.has(removed)){this.filteredNative.set(added,this.filteredNative.get(removed));this.filteredNative.delete(removed);}if(removed.dataset?.rtUi==='activity-item'){added.dataset.rtUi='activity-slot';added.hidden=removed.hidden;}if(removed.hasAttribute?.('data-rt-order-pending')){added.setAttribute('data-rt-order-pending','');this.mergePendingNodes.add(added);}if(removed.hasAttribute?.('data-rt-filter-hidden'))added.setAttribute('data-rt-filter-hidden','');if(removed.hasAttribute?.('data-rt-rule-collapsed')){added.setAttribute('data-rt-rule-collapsed','');removed.removeAttribute('data-rt-rule-collapsed');this.collapsedNativeRules?.delete(removed);this.collapsedNativeRules?.add(added);}if(removed.hasAttribute?.('data-rt-activity-match'))added.setAttribute('data-rt-activity-match','');}
-        else if(this.virtualNodes.get(removed)===added){if(this.filteredNative.has(removed)){this.filteredNative.set(added,this.filteredNative.get(removed));this.filteredNative.delete(removed);}if(removed.hasAttribute?.('data-rt-rule-collapsed')){added.setAttribute('data-rt-rule-collapsed','');removed.removeAttribute('data-rt-rule-collapsed');this.collapsedNativeRules?.delete(removed);this.collapsedNativeRules?.add(added);}this.virtualNodes.delete(removed);}
+        if(added.nodeType!==1 || removed.nodeType!==1)continue;
+        if(this.virtualNodes.get(removed)===added){
+          this.forgetVirtualSlot(removed,added);
+        }else if(added.matches('.virtualized-placeholder') && !this.virtualNodes.has(added)){
+          this.virtualNodes.set(added,removed);this.virtualSlots.set(removed,added);
+          if(!this.feed.contains(added))(retired ||= new Set()).add(added);
+          if(['activity-item','activity-slot'].includes(removed.dataset.rtUi)){added.dataset.rtUi='activity-slot';added.hidden=removed.hidden;}
+          if(removed.hasAttribute('data-rt-order-pending')){added.setAttribute('data-rt-order-pending','');this.mergePendingNodes.add(added);}
+          if(removed.hasAttribute('data-rt-filter-hidden'))added.setAttribute('data-rt-filter-hidden','');
+          if(removed.hasAttribute('data-rt-activity-match'))added.setAttribute('data-rt-activity-match','');
+        }else continue;
+        if(this.filteredNative.has(removed)){this.filteredNative.set(added,this.filteredNative.get(removed));this.filteredNative.delete(removed);}
+        if(removed.hasAttribute('data-rt-rule-collapsed')){added.setAttribute('data-rt-rule-collapsed','');removed.removeAttribute('data-rt-rule-collapsed');this.collapsedNativeRules?.delete(removed);this.collapsedNativeRules?.add(added);}
+      }
+      if(retired)this.pruneVirtualSlots(retired);
+    }
+    forgetVirtualSlot(slot,original){
+      this.virtualNodes.delete(slot);
+      if(this.virtualSlots.get(original)===slot)this.virtualSlots.delete(original);
+    }
+    virtualOriginal(slot){
+      while(this.virtualNodes?.has(slot))slot=this.virtualNodes.get(slot);
+      return slot;
+    }
+    outerVirtualSlot(node){
+      let slot;
+      while((slot=this.virtualSlots?.get(node)))node=slot;
+      return node;
+    }
+    pruneVirtualSlots(slots){
+      for(const slot of slots){
+        if(!this.virtualNodes.has(slot) || this.feed.contains(this.outerVirtualSlot(slot)))continue;
+        // An orphan may wrap an older placeholder. Drop its whole chain and undo only
+        // the presentation state that belonged to the discarded slot.
+        for(let outer=this.outerVirtualSlot(slot);this.virtualNodes.has(outer);){
+          const original=this.virtualNodes.get(outer),card=this.virtualOriginal(original);
+          if(this.filteredNative.has(outer)){
+            card.hidden=this.filteredNative.get(outer);card.removeAttribute('data-rt-filter-hidden');card.removeAttribute('data-rt-activity-match');this.filteredNative.delete(outer);
+          }
+          this.mergePendingNodes.delete(outer);this.collapsedNativeRules.delete(outer);
+          for(const name of ['data-rt-order-pending','data-rt-filter-hidden','data-rt-activity-match','data-rt-rule-collapsed'])outer.removeAttribute(name);
+          this.forgetVirtualSlot(outer,original);outer=original;
+        }
       }
     }
     flushVirtualization(){
@@ -579,15 +629,15 @@
         if(records.some(record=>record.type==='childList' && [...record.addedNodes].some(node=>node.nodeType===1 && !node.closest?.('[data-rt-ui]'))))this.observeNativeLoading();});
       }finally{this.flushingVirtualization=false;}
     }
-    feedSlot(node){this.flushVirtualization();for(const [placeholder,original] of this.virtualNodes || [])if(original===node && placeholder.parentElement===this.feed)return placeholder;return node;}
+    feedSlot(node){this.flushVirtualization();const slot=this.outerVirtualSlot(node);return slot?.parentElement===this.feed?slot:node;}
     capturePresentedFeed(){
-      if(this.context?.kind==='profile' && pageRoute()?.key===this.context.key)this.presentedFeedNodes=new Set(this.nativeEntries().map(entry=>this.virtualNodes.get(entry.node) || entry.node));
+      if(this.context?.kind==='profile' && pageRoute()?.key===this.context.key)this.presentedFeedNodes=new Set(this.nativeEntries().map(entry=>this.virtualOriginal(entry.node)));
     }
     presentedProfileVisible(){
       if(this.context?.kind!=='profile' || !this.host?.isConnected || !this.feed?.isConnected)return false;
       if(this.archiveOnly || this.blockedProfile)return Boolean(this.archiveShell?.isConnected && this.archiveShell.contains(this.feed));
       if(this.feed.closest('main')?.querySelector('shreddit-feed')!==this.feed)return false;
-      const current=this.nativeEntries().map(entry=>this.virtualNodes.get(entry.node) || entry.node);
+      const current=this.nativeEntries().map(entry=>this.virtualOriginal(entry.node));
       // Route and header changes precede the feed replacement. Retained native
       // objects (including virtualized ones) identify the outgoing view, even
       // after Reddit removes its profile tabs. IDs can recur in the post view.
@@ -1121,7 +1171,7 @@
       // Reddit's feed swaps off-screen cards for same-height placeholders and swaps them back on scroll. Order whatever
       // currently holds each card's place, so a re-render never pulls a swapped card back in beside its placeholder
       // (which left blanks and shifted the page), and move nothing that is already in place.
-      this.flushVirtualization();const slots=new Map();for(const [placeholder,original] of this.virtualNodes || [])if(placeholder.parentElement===this.feed)slots.set(original,placeholder);
+      this.flushVirtualization();const slots=new Map();for(const placeholder of this.virtualNodes.keys())if(placeholder.parentElement===this.feed)slots.set(this.virtualOriginal(placeholder),placeholder);
       let before=this.loading;for(const post of [...posts].reverse()){const node=this.nodes.get(itemKey(post)),slot=slots.get(node) || node;if(slot!==node)slot.hidden=node.hidden;if(slot.nextSibling!==before)this.feed.insertBefore(slot,before);before=slot;}
       for(const [original,placeholder] of slots)if(placeholder.hidden!==original.hidden)placeholder.hidden=original.hidden;
       // Cards stay undrawn (display:none) until Reddit's card is ready, so a scroll watcher never sees them: queue them.
@@ -2397,7 +2447,7 @@
     loadedItems(){
       const out=new Map();
       for(const post of [...this.archived.values(),...this.live.values()])out.set(post.fullname,{fullname:post.fullname,subreddit:post.subreddit});
-      for(const entry of this.nativeEntries()){if(out.has(entry.fullname))continue;const slot=this.virtualNodes.get(entry.node) || entry.node,native=slot.matches('shreddit-post,shreddit-profile-comment')?slot:slot.querySelector('shreddit-post,shreddit-profile-comment');out.set(entry.fullname,{fullname:entry.fullname,subreddit:this.nativeItem(native,entry).subreddit});}
+      for(const entry of this.nativeEntries()){if(out.has(entry.fullname))continue;const slot=this.virtualOriginal(entry.node),native=slot.matches('shreddit-post,shreddit-profile-comment')?slot:slot.querySelector('shreddit-post,shreddit-profile-comment');out.set(entry.fullname,{fullname:entry.fullname,subreddit:this.nativeItem(native,entry).subreddit});}
       return [...out.values()];
     }
     // Where the numbers in the list come from: 'archive' only when this exact query's aggregate answered.
@@ -2527,7 +2577,7 @@
       if(this.isSearch() || this.context?.kind!=='profile' || !this.settings.archiveDiscovery || !this.settings.restoreDeletedContent || this.archiveOnly || this.recoveryTimer || this.recoveryActive || this.sourceRetries?.get('recovery')?.timer)return;
       const candidates=new Map();
       for(const post of this.renderedPosts || [])if(this.recoveryInView(this.nodes.get(itemKey(post))) && ['deleted','removed'].includes(this.verifiedStatus(post,this.nodes.get(itemKey(post))?.querySelector('shreddit-post,shreddit-profile-comment'))) && !post.archivedBody && !this.archived.has(itemKey(post)) && !this.recoveryChecked.has(post.fullname))candidates.set(post.fullname,{id:post.id,node:this.nodes.get(itemKey(post)),kind:post.kind==='comment'?'comment':'post',status:this.verifiedStatus(post,this.nodes.get(itemKey(post))?.querySelector('shreddit-post,shreddit-profile-comment'))});
-      for(const entry of this.nativeEntries()){const original=this.virtualNodes.get(entry.node) || entry.node,native=original.matches('shreddit-post,shreddit-profile-comment')?original:original.querySelector('shreddit-post,shreddit-profile-comment'),kind=native?.matches('shreddit-profile-comment')?'comment':'post',status=this.verifiedStatus({fullname:entry.fullname,kind,status:'unknown'},native);if(this.recoveryInView(entry.node) && ['deleted','removed'].includes(status) && !this.recoveryChecked.has(entry.fullname) && !this.archived.has(kind==='comment'?entry.fullname:entry.fullname?.replace(/^t3_/,'')))candidates.set(entry.fullname,{id:entry.fullname?.replace(/^t[13]_/,''),kind,status,node:entry.node});}
+      for(const entry of this.nativeEntries()){const original=this.virtualOriginal(entry.node),native=original.matches('shreddit-post,shreddit-profile-comment')?original:original.querySelector('shreddit-post,shreddit-profile-comment'),kind=native?.matches('shreddit-profile-comment')?'comment':'post',status=this.verifiedStatus({fullname:entry.fullname,kind,status:'unknown'},native);if(this.recoveryInView(entry.node) && ['deleted','removed'].includes(status) && !this.recoveryChecked.has(entry.fullname) && !this.archived.has(kind==='comment'?entry.fullname:entry.fullname?.replace(/^t3_/,'')))candidates.set(entry.fullname,{id:entry.fullname?.replace(/^t[13]_/,''),kind,status,node:entry.node});}
       if(!candidates.size)return;
       const generation=this.generation,context=this.context;this.recoveryTimer=setTimeout(async()=>{this.recoveryTimer=null;if(generation!==this.generation)return;this.recoveryActive=true;this.updateProfileLoading();
         const current=()=>generation===this.generation && pageRoute()?.key===context.key && this.settings.archiveDiscovery && this.settings.restoreDeletedContent;
@@ -2585,7 +2635,7 @@
     }
     filterNativeEntries(entries){
       const rt=this.rtActive(),predicate=rt?this.rtPredicate():null,old=this.oldSort(),activity=this.activityFilter!=='all';
-      for(const entry of entries){const node=entry.node,original=this.virtualNodes.get(node) || node,native=original.matches('shreddit-post,shreddit-profile-comment')?original:original.querySelector('shreddit-post,shreddit-profile-comment'),kind=native?.matches('shreddit-profile-comment')?'comment':'post',post={fullname:entry.fullname,kind,status:'unknown',source:'reddit'};
+      for(const entry of entries){const node=entry.node,original=this.virtualOriginal(node),native=original.matches('shreddit-post,shreddit-profile-comment')?original:original.querySelector('shreddit-post,shreddit-profile-comment'),kind=native?.matches('shreddit-profile-comment')?'comment':'post',post={fullname:entry.fullname,kind,status:'unknown',source:'reddit'};
         if(!activity && !rt){if(this.filteredNative.has(node)){const hidden=this.filteredNative.get(node);node.hidden=hidden;if(original!==node)original.hidden=hidden;this.filteredNative.delete(node);}node.removeAttribute('data-rt-filter-hidden');node.removeAttribute('data-rt-activity-match');if(original!==node){original.removeAttribute('data-rt-filter-hidden');original.removeAttribute('data-rt-activity-match');}continue;}if(!this.filteredNative.has(node))this.filteredNative.set(node,node.hidden);
         // Old replaces the feed with the archive's list; date, type and subreddit hide what does not match.
         let hidden=activity && (this.activityFilter==='hidden' || !['deleted','removed'].includes(this.verifiedStatus(post,native)));if(!hidden && rt)hidden=old || !predicate(this.nativeItem(native,entry));
@@ -2654,7 +2704,7 @@
       if(enabled && this.autoDiscover && !this.loaded && !this.archiveLoaded && !this.primaryFailure())boundary=Infinity;
       if(enabled){const next=this.renderedPosts.find(post=>!visible.has(post.fullname) && !this.publishedCards.has(itemKey(post)));if(next)boundary=Math.max(boundary,next.created);}
       const previous=this.mergePendingNodes;this.mergePendingNodes=new Set();let waiting=false,release=Infinity;const now=Date.now();
-      for(const entry of entries){const original=this.virtualNodes.get(entry.node) || entry.node;let pending=enabled && !entry.pinned && Number.isFinite(entry.timestamp) && !this.publishedNative.has(original) && !this.initialNative.has(original) && entry.timestamp<=boundary;
+      for(const entry of entries){const original=this.virtualOriginal(entry.node);let pending=enabled && !entry.pinned && Number.isFinite(entry.timestamp) && !this.publishedNative.has(original) && !this.initialNative.has(original) && entry.timestamp<=boundary;
         if(pending){
           // Reddit's own page never waits longer than the native budget.
           if(!this.nativeSeenAt.has(original))this.nativeSeenAt.set(original,now);
@@ -2675,7 +2725,7 @@
       this.flushVirtualization();
       const entries=[];
       for(const slot of elementChildren(this.feed)){
-        const node=this.virtualNodes.get(slot) || slot;
+        const node=this.virtualOriginal(slot);
         if(node.hasAttribute('data-rt-ui'))continue;
         const content=node.matches('shreddit-post,shreddit-profile-comment')?node:node.querySelector('shreddit-post,shreddit-profile-comment');
         if(!content)continue;
@@ -2693,7 +2743,7 @@
       const slots=new Set(entries.map(entry=>entry.node)),previous=this.collapsedNativeRules || new Set(),collapsed=new Set();let rules=[],hiddenCard=false,leftVisible=false;
       const finish=rightVisible=>{const keep=hiddenCard?(leftVisible || rightVisible?1:0):1;for(const rule of rules.slice(keep))collapsed.add(rule);rules=[];hiddenCard=false;};
       const visit=(node,batch=null)=>{
-        const original=this.virtualNodes.get(node) || node;
+        const original=this.virtualOriginal(node);
         if(original.matches('hr.border-0.border-b-sm.border-solid.border-b-neutral-border-weak')){rules.push(node);return;}
         if(original.matches('shreddit-feed-load-more-observer') && !original.children.length && !original.textContent.trim() && node.getBoundingClientRect().height===0)return;
         const native=slots.has(node) || Boolean(batch && (original.matches('article,shreddit-post,shreddit-profile-comment') || original.matches('shreddit-feed-load-more-observer') && original.querySelector('shreddit-post,shreddit-profile-comment'))),owned=['activity-item','activity-slot'].includes(node.dataset.rtUi);
@@ -2745,7 +2795,7 @@
       const entries=this.nativeEntries(),visible=this.visibleIds(),sort=this.effectiveSort(),normal=entries.filter(e=>!e.pinned && (sort==='top'?Number.isFinite(e.score):sort==='hot' || Number.isFinite(e.timestamp))),rank=new Map(this.renderedPosts.map((post,index)=>[post.fullname,index]));
       this.syncNativeOrder(entries);
       const continuation=this.nativeContinuation();
-      const horizon=this.freeMerge()?-Infinity:continuation && sort!=='hot'?(normal.length?Math.min(...normal.map(e=>sort==='top'?e.score:Math.floor(e.timestamp))):sort==='new'?Infinity:-Infinity):-Infinity;
+      const horizon=this.freeMerge()?-Infinity:continuation && sort!=='hot'?(normal.length?normal.reduce((min,entry)=>Math.min(min,sort==='top'?entry.score:Math.floor(entry.timestamp)),Infinity):sort==='new'?Infinity:-Infinity):-Infinity;
       const nativeTail=continuation?(()=>{let n=continuation;while(n.parentElement && n.parentElement!==this.feed)n=n.parentElement;return n.parentElement===this.feed?n:null;})():null;
       // Our sentinel is also a real tail. Using null here appended stable
       // cards past it on every scan, then moved the sentinel back again. Those
@@ -2753,6 +2803,13 @@
       const tail=nativeTail || (this.loading?.parentElement===this.feed?this.loading:null);
       const buckets=new Map(),entriesByName=new Map(),oldMode=this.oldSort();let count=0,deferred=0;
       for(const entry of entries){const list=entriesByName.get(entry.fullname);if(list)list.push(entry);else entriesByName.set(entry.fullname,[entry]);}
+      // Keep only entries that could be the first match in native DOM order. Their descending keys
+      // allow a binary search even if Reddit's cards don't arrive in strict score/date order.
+      const insertionPoints=[];
+      if(!oldMode)for(const entry of normal){
+        const value=sort==='top'?entry.score:sort==='hot'?-rank.get(entry.fullname):entry.timestamp;
+        if(value<(insertionPoints.at(-1)?.value ?? Infinity))insertionPoints.push({node:entry.node,value});
+      }
       for(const post of this.renderedPosts || []){
         const node=this.nodes.get(itemKey(post));if(!node)continue;
         const slot=this.feedSlot(node),virtualized=slot!==node;
@@ -2761,12 +2818,18 @@
         const staged=this.batchedProfile && (!this.publishedCards.has(itemKey(post)) || !['ready','failed'].includes(node.dataset.rtNativeState));const matches=this.matchesActivity(post,node,visible),qualify=this.activityFilter==='deleted' && !duplicate && !older && !staged && !['deleted','removed'].includes(this.verifiedStatus(post,node.querySelector('shreddit-post,shreddit-profile-comment'))) && node.dataset.rtNativeState==='idle';const hide=duplicate || older || staged || !matches;if(node.hidden!==hide)node.hidden=hide;
         if(qualify){node.dataset.rtQualify='true';this.queueNative(node);}const deferral=older?'older':'';if(node.getAttribute('data-deferred')!==deferral)node.setAttribute('data-deferred',deferral);
         if(virtualized && slot.hidden!==node.hidden)slot.hidden=node.hidden;
-        if(node.hidden){if(duplicate){const entry=entriesByName.get(post.fullname)?.[0],original=this.virtualNodes.get(entry?.node) || entry?.node,native=original?.matches('shreddit-post,shreddit-profile-comment')?original:original?.querySelector('shreddit-post,shreddit-profile-comment');if(native){const archive=this.archived.get(itemKey(post)),status=this.verifiedStatus(post,native),owned=archive?.source==='arctic-shift' && archive.fullname===post.fullname && archive.author.toLowerCase()===this.context.username.toLowerCase();if(owned && ['deleted','removed'].includes(status) || this.recoverBody(post,native)){this.nativeDecorations.add(native);this.decorateNative(post,native);}}}this.nativeObserver?.unobserve(node);if(older)deferred++;if(!virtualized && !this.publishedCards.has(itemKey(post)) && node.parentElement!==this.results)this.results.append(node);continue;}
+        if(node.hidden){if(duplicate){const entry=entriesByName.get(post.fullname)?.[0],original=this.virtualOriginal(entry?.node),native=original?.matches('shreddit-post,shreddit-profile-comment')?original:original?.querySelector('shreddit-post,shreddit-profile-comment');if(native){const archive=this.archived.get(itemKey(post)),status=this.verifiedStatus(post,native),owned=archive?.source==='arctic-shift' && archive.fullname===post.fullname && archive.author.toLowerCase()===this.context.username.toLowerCase();if(owned && ['deleted','removed'].includes(status) || this.recoverBody(post,native)){this.nativeDecorations.add(native);this.decorateNative(post,native);}}}this.nativeObserver?.unobserve(node);if(older)deferred++;if(!virtualized && !this.publishedCards.has(itemKey(post)) && node.parentElement!==this.results)this.results.append(node);continue;}
         count++;
         // A newly fetched native duplicate may still be behind the merge gate.
         // Retain its displayed peer in the same slot until native handoff.
         if(pendingDuplicate && slot.parentElement===this.feed)continue;
-        const target=oldMode?tail:normal.find(entry=>sort==='top'?entry.score<=post.score:sort==='hot'?rank.has(entry.fullname) && rank.get(entry.fullname)>rank.get(post.fullname):entry.timestamp<=post.created)?.node || tail;
+        const value=sort==='top'?post.score:sort==='hot'?-rank.get(post.fullname):post.created;
+        let lo=0,hi=insertionPoints.length;
+        while(lo<hi){
+          const mid=Math.floor((lo+hi)/2),entry=insertionPoints[mid];
+          if(sort==='hot'?entry.value<value:entry.value<=value)hi=mid;else lo=mid+1;
+        }
+        const target=insertionPoints[lo]?.node || tail;
         if(!buckets.has(target))buckets.set(target,[]);buckets.get(target).push(slot);
       }
       // Reconcile only extension-owned cards. Reddit retains ownership and order of its nodes.

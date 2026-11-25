@@ -32,6 +32,45 @@ test('stable profile reconciliation never moves published cards around its own l
   d.feed.replaceChild(card,slot);d.trackVirtualization([{target:d.feed,addedNodes:[card],removedNodes:[slot]}]);observer.takeRecords();d.deduplicate();
   assert.equal(observer.takeRecords().length,0,'reverse scrolling restores the same card without another move');assert.equal(card.querySelector('shreddit-post'),content);assert.equal(d.feed.lastElementChild,d.loading);observer.disconnect();
 });
+
+test('discarding a native placeholder forgets its card while nested swaps and a parked feed retain valid slots',async t=>{
+  const {W,d}=setup(t);await d.ready;
+  const feed=d.feed,native=feed.querySelector('shreddit-post');
+  const placeholder=()=>Object.assign(W.document.createElement('div'),{className:'virtualized-placeholder'});
+  const inner=placeholder(),outer=placeholder(),watcher=new W.MutationObserver(()=>{});
+  watcher.observe(feed,{childList:true});t.after(()=>watcher.disconnect());
+  native.replaceWith(inner);inner.replaceWith(outer);
+  d.trackVirtualization(watcher.takeRecords());
+  assert.equal(d.feedSlot(native),outer);
+  assert.equal(d.virtualOriginal(outer),native);
+  assert.equal(d.visibleIds().has(native.id),true);
+  outer.replaceWith(inner);
+  const restore=watcher.takeRecords();d.trackVirtualization(restore);d.trackVirtualization(restore);
+  assert.equal(d.feedSlot(native),inner);
+  const container=feed.parentElement;feed.remove();
+  d.pruneVirtualSlots(d.virtualNodes.keys());
+  assert.equal(d.virtualNodes.get(inner),native,'the same feed can still restore its slot while parked');
+  container.append(feed);
+  inner.replaceWith(outer);d.trackVirtualization(watcher.takeRecords());
+  outer.remove();d.trackVirtualization(watcher.takeRecords());
+  assert.equal(d.virtualNodes.size,0);
+  assert.equal(d.feedSlot(native),native);
+});
+
+test('profile merging still finds the first matching native card when native timestamps are not ordered',async t=>{
+  const {W,d}=setup(t,{reddit:async()=>({posts:[raw('equal',{created_utc:1700000040}),raw('between',{created_utc:1700000030})],hasMore:false})});
+  await d.ready;
+  const feed=d.feed,first=feed.querySelector('shreddit-post');
+  first.setAttribute('created-timestamp',new Date(1700000040*1000).toISOString());
+  for(const [id,created] of [['older',1700000010],['middle',1700000030]]){
+    const native=W.document.createElement('shreddit-post');native.id='t3_'+id;
+    native.setAttribute('created-timestamp',new Date(created*1000).toISOString());
+    feed.insertBefore(native,d.loading);
+  }
+  await d.loadReddit();await new Promise(r=>setImmediate(r));
+  assert.equal(d.nodes.get('equal').nextElementSibling,first,'equal dates insert before the native card');
+  assert.equal(d.nodes.get('between').nextElementSibling.id,'t3_older','the first native match wins, even over a closer timestamp');
+});
 test('archived text and current deletion status remain separately attributed',async t=>{
   const {d}=setup(t,{settings:{archiveDiscovery:true},nativeRender:async(post,node)=>{node.innerHTML='<shreddit-post><span slot="credit-bar"></span><p slot="text-body">[removed]</p></shreddit-post>';},reddit:async()=>({posts:[raw('old12',{selftext:'[removed]'})]})});await d.ready;await d.loadArchive();await new Promise(r=>setImmediate(r));
   assert.match((d.feed || d.results).textContent,/Public text/);assert.equal((d.feed || d.results).querySelector('details'),null);assert.match((d.feed || d.results).querySelector('[role=img]').title,/Removed on Reddit/);assert.match((d.feed || d.results).querySelector('[data-rt-source]').title,/Text recovered from Arctic Shift/);
