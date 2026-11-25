@@ -1101,3 +1101,56 @@ test('Messages tab defers summary reloads and skips people filtering on saved up
   await p.click('[data-scope="people"]');await settle();
   assert.equal(summaryCalls,1,'switching to People loads the deferred summaries once');
 });
+
+test('certified watermark hides uncertified older hits so nothing inserts between displayed rows, with aligned bottom loading shimmer and clean status',async t=>{
+  const p=await setup(t,{scope:'messages'}),c=p.control;
+  p.w.customElements.define('faceplate-shimmer',class extends p.w.HTMLElement{});
+  const base=Date.UTC(2026,10,20,12,0,0);
+  const hits=[
+    {id:'m1',roomId:'alex',text:'coffee newest',sender:'@t2_alex:reddit.com',author:'alex',timestamp:new Date(base).toISOString()},
+    {id:'m2',roomId:'alex',text:'coffee recent',sender:'@t2_alex:reddit.com',author:'alex',timestamp:new Date(base-3600_000).toISOString()},
+    {id:'m3',roomId:'alex',text:'coffee uncertified old',sender:'@t2_alex:reddit.com',author:'alex',timestamp:new Date(base-10*86400_000).toISOString()}
+  ];
+  await p.search('coffee');
+  c.savedHits=hits;c.savedTotal=hits.length;c.savedRooms=1;c.hasMore=false;
+  const plan=c.backfillPlan();
+  // Active running backfill with watermark at day -5: only m1 and m2 (> watermark + 60s) are shown; m3 stays hidden.
+  c.backfillState={queryKey:plan.queryKey,coverageKey:plan.coverageKey,state:'running',watermark:base-5*86400_000,searchedRooms:3,totalRooms:100};
+  c.importing=true;c.updateControls();c.makeItems();c.renderWindow();
+  assert.deepEqual([...c.items.filter(i=>i.kind==='message').map(i=>i.record.id)],['m1','m2']);
+  assert.doesNotMatch(c.status.textContent,/0 of 0|Checking cache/);
+  assert.match(c.status.textContent,/^2\+ matches · Searching back to /);
+  assert.match(c.status.title,/Checked 3 of 100 chats/);
+  const footer=c.shadow.querySelector('.loading-more-footer');
+  assert.ok(footer,'bottom loading footer renders below certified results');
+  assert.equal(footer.querySelectorAll('.skeleton-row-more').length,2);
+  assert.ok(footer.querySelectorAll('faceplate-shimmer').length>=6,'reuses native faceplate-shimmer');
+  // Updating the watermark date updates the footer text in place without recreating the shimmer DOM node.
+  c.backfillState={...c.backfillState,watermark:base-7*86400_000,searchedRooms:9};
+  c.updateControls();c.makeItems();c.renderWindow();
+  assert.equal(c.shadow.querySelector('.loading-more-footer'),footer,'reuses the same footer node so animations stay smooth');
+  // ArrowDown skips the loading-more footer and only focuses real result rows.
+  c.active='message:alex:m2';c.move(1);
+  assert.equal(c.active,'message:alex:m2','keyboard navigation never focuses the loading-more footer');
+  // When all saved matches are older than the running watermark, show the loading shimmer instead of false "No matches yet".
+  c.backfillState={...c.backfillState,state:'running',watermark:base+86400_000,searchedRooms:1};
+  c.updateControls();c.makeItems();c.renderWindow();
+  assert.deepEqual([...c.items.filter(i=>i.kind==='message').map(i=>i.record.id)],[]);
+  assert.ok(c.shadow.querySelector('.loading-more-footer'),'shows bottom shimmer while certifying older matches');
+  assert.equal(c.shadow.querySelector('.empty-state'),null,'does not show false empty state when older matches wait behind watermark');
+  // If backfill pauses on budget before reaching the first match, empty state offers a Continue action so user is never stuck without a scrollbar.
+  c.backfillState={...c.backfillState,state:'paused',reason:'budget',watermark:base+86400_000};
+  c.updateControls();c.makeItems();c.renderWindow();
+  assert.ok(c.shadow.querySelector('.empty-state button'),'budget-paused empty state provides a Search older messages button');
+  // Advancing the watermark past m3 appends m3 strictly at the bottom, and paused status removes the footer.
+  c.backfillState={...c.backfillState,state:'paused',reason:'target',watermark:base-15*86400_000};
+  c.updateControls();c.makeItems();c.renderWindow();
+  assert.deepEqual([...c.items.filter(i=>i.kind==='message').map(i=>i.record.id)],['m1','m2','m3']);
+  assert.equal(c.shadow.querySelector('.loading-more-footer'),null);
+  assert.match(c.status.textContent,/3\+ matches · Back to .* · Scroll for older/);
+  // Running with totalRooms === 0 (initial freshness check) never displays "0 of 0 chats".
+  c.backfillState={queryKey:plan.queryKey,coverageKey:plan.coverageKey,state:'running',watermark:0,searchedRooms:0,totalRooms:0};
+  c.updateControls();
+  assert.doesNotMatch(c.status.textContent,/0 of 0/);
+  assert.match(c.status.textContent,/Searching older messages…/);
+});
