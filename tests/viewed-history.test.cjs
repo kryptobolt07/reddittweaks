@@ -2,7 +2,7 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),vm=require('node:vm');
-const {IDBFactory,IDBKeyRange}=require('fake-indexeddb');
+const {IDBFactory,IDBKeyRange,IDBCursor,IDBIndex,IDBObjectStore}=require('fake-indexeddb');
 const {JSDOM}=require('jsdom');
 const read=file=>fs.readFileSync('extension/'+file,'utf8');
 const flush=async()=>{for(let i=0;i<8;i++)await new Promise(r=>setImmediate(r));};
@@ -41,6 +41,19 @@ test('a limit keeps only the newest views; no limit keeps all; trimming and clea
  await store.clear();assert.equal((await store.load({...me,limit:0})).length,0);
 });
 
+test('recording at the History limit skips retained rows and deletes only the overflow',async t=>{
+ const {store,clock}=storeContext(),owner='t2_self';
+ for(let i=0;i<100;i++){clock.now++;await store.record({owner,item:item('p'+i),limit:0});}
+ const advance=t.mock.method(IDBCursor.prototype,'advance'),next=t.mock.method(IDBCursor.prototype,'continue'),values=t.mock.method(IDBIndex.prototype,'openCursor');
+ clock.now++;await store.record({owner,item:item('extra'),limit:100});
+ assert.equal(advance.mock.callCount(),1);
+ assert.equal(advance.mock.calls[0].arguments[0],100);
+ assert.equal(next.mock.callCount(),1,'only the overflow row is walked');
+ assert.equal(values.mock.callCount(),0,'retention never reads post payloads');
+ const kept=await store.load({owner,limit:0});
+ assert.equal(kept.length,100);assert.equal(kept[0].id,'extra');assert.equal(kept.at(-1).id,'p1');
+});
+
 function brokerContext({limit=1000,me={owner:'t2_self',username:'Example'}}={}){
  const values={'rt-settings-v1':{historyLimit:limit}};let listener,changed,identity=me;
  const chrome={runtime:{id:'own',onMessage:{addListener(fn){listener=fn;}}},storage:{local:{async get(k){return {[k]:structuredClone(values[k])};}},onChanged:{addListener(fn){changed=fn;}}}};
@@ -49,8 +62,19 @@ function brokerContext({limit=1000,me={owner:'t2_self',username:'Example'}}={}){
  for(const file of ['post-model.js','viewed-store.js','viewed-broker.js'])vm.runInContext(read(file),ctx);
  const sender={id:'own',frameId:0,tab:{id:1},url:'https://www.reddit.com/r/Alpha/comments/a1/x/'};
  const send=(message,from=sender)=>new Promise(resolve=>{if(listener({scope:'rt-viewed',owner:'t2_self',username:'Example',...message},from,resolve)!==true)resolve(undefined);});
- return {send,values,clock,setMe:v=>identity=v,async setLimit(next){values['rt-settings-v1']={historyLimit:next};await changed({'rt-settings-v1':{newValue:values['rt-settings-v1']}},'local');}};
+ async function setSettings(newValue){const oldValue=values['rt-settings-v1'];values['rt-settings-v1']=newValue;await changed({'rt-settings-v1':{oldValue,newValue}},'local');}
+ return {send,values,clock,setMe:v=>identity=v,setSettings,setLimit:next=>setSettings({historyLimit:next})};
 }
+
+test('unrelated settings changes neither trim an extended History nor clear when already at Reddit’s default',async t=>{
+ const b=brokerContext({limit:100});
+ const trim=t.mock.method(IDBIndex.prototype,'openKeyCursor'),clear=t.mock.method(IDBObjectStore.prototype,'clear');
+ await b.setSettings({historyLimit:100,videoStart:'preview'});
+ assert.equal(trim.mock.callCount(),0);
+ await b.setLimit(20);assert.equal(clear.mock.callCount(),1,'switching to default still clears stored History');
+ await b.setSettings({historyLimit:20,videoStart:'preview'});
+ assert.equal(clear.mock.callCount(),1);
+});
 
 test('the worker records from Reddit pages by account ID and loads only for the verified signed-in account, above Reddit’s 20',async()=>{
  const b=brokerContext();assert.equal((await b.send({action:'record',item:item('a1')})).ok,true);b.clock.now+=10;await b.send({action:'record',item:item('b2')});

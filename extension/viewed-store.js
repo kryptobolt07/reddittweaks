@@ -26,14 +26,23 @@
   const range=owner=>globalThis.IDBKeyRange.bound([owner,-Infinity],[owner,Infinity]);
   // Walks one account's views newest first; visit returns false to stop.
   const walk=(index,owner,visit)=>new Promise((resolve,reject)=>{const request=index.openCursor(range(owner),'prev');request.onerror=()=>reject(request.error);request.onsuccess=()=>{const cursor=request.result;if(!cursor || visit(cursor)===false)resolve();else cursor.continue();};});
-  async function trimOwner(owner,limit){
-   if(!(limit>0))return;const db=await open(),tx=db.transaction(STORE,'readwrite');let seen=0;
-   await walk(tx.objectStore(STORE).index(INDEX),owner,cursor=>{if(++seen>limit)cursor.delete();});await done(tx);
+  function trimOwner(store,owner,limit){
+   if(!(limit>0))return;
+   return new Promise((resolve,reject)=>{
+    const request=store.index(INDEX).openKeyCursor(range(owner),'prev');let retained=false;
+    request.onerror=()=>reject(request.error);
+    request.onsuccess=()=>{
+     const cursor=request.result;if(!cursor)return resolve();
+     if(!retained){retained=true;cursor.advance(limit);return;}
+     store.delete(cursor.primaryKey);cursor.continue();
+    };
+   });
   }
   async function record({owner,item,limit}){
    const value=clean(item);if(!value || !ownerOK(owner))return false;owner=owner.toLowerCase();
-   const db=await open(),tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).put({...value,owner,viewedAt:now()});await done(tx);
-   await trimOwner(owner,limit);return true;
+   const db=await open(),tx=db.transaction(STORE,'readwrite'),store=tx.objectStore(STORE),finished=done(tx);
+   store.put({...value,owner,viewedAt:now()});
+   await Promise.all([finished,trimOwner(store,owner,limit)]);return true;
   }
   async function seed({owner,items,limit}){
    if(!ownerOK(owner) || !Array.isArray(items) || items.length>100)return 0;owner=owner.toLowerCase();
@@ -42,7 +51,7 @@
    const existing=values.map(value=>new Promise((resolve,reject)=>{const r=store.get([owner,value.fullname]);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);}));
    const [first,found]=await Promise.all([oldest,Promise.all(existing)]),base=Math.min(now(),first ?? now());let added=0;const seen=new Set();
    for(let i=0;i<values.length;i++){const value=values[i];if(found[i] || seen.has(value.fullname))continue;seen.add(value.fullname);store.put({...value,owner,seeded:true,viewedAt:base-i-1});added++;}
-   await finished;await trimOwner(owner,limit);return added;
+   await Promise.all([finished,trimOwner(store,owner,limit)]);return added;
   }
   async function load({owner,limit}){
    if(!ownerOK(owner))return [];owner=owner.toLowerCase();const db=await open(),tx=db.transaction(STORE,'readonly'),items=[];
@@ -50,9 +59,10 @@
    return items;
   }
   async function trimAll(limit){
-   if(!(limit>0))return;const db=await open(),tx=db.transaction(STORE,'readwrite'),counts=new Map();
-   await new Promise((resolve,reject)=>{const request=tx.objectStore(STORE).index(INDEX).openCursor(null,'prev');request.onerror=()=>reject(request.error);request.onsuccess=()=>{const cursor=request.result;if(!cursor)return resolve();const n=(counts.get(cursor.value.owner) || 0)+1;counts.set(cursor.value.owner,n);if(n>limit)cursor.delete();cursor.continue();};});
-   await done(tx);
+   if(!(limit>0))return;const db=await open(),tx=db.transaction(STORE,'readwrite'),store=tx.objectStore(STORE),finished=done(tx);
+   let owner,seen=0;
+   const trim=new Promise((resolve,reject)=>{const request=store.index(INDEX).openKeyCursor(null,'prev');request.onerror=()=>reject(request.error);request.onsuccess=()=>{const cursor=request.result;if(!cursor)return resolve();const [current]=cursor.key;if(current!==owner){owner=current;seen=0;}if(++seen>limit)store.delete(cursor.primaryKey);cursor.continue();};});
+   await Promise.all([finished,trim]);
   }
   async function clear(){const db=await open(),tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).clear();await done(tx);}
   return Object.freeze({record,seed,load,trimAll,clear});

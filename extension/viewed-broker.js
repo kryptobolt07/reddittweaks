@@ -28,8 +28,11 @@
  });
  // Reddit's 20 means nothing is kept: recorded views are deleted. A lower limit trims the stored views.
  chrome.storage.onChanged?.addListener(async(changes,area)=>{
-  if(area!=='local' || !changes[key])return;const limit=globalThis.RTPostModel.normalizeSettings(changes[key].newValue).historyLimit;
-  try{if(limit===20)await store.clear();else if(limit>0)await store.trimAll(limit);}catch{}
+  if(area!=='local' || !changes[key])return;
+  const normalize=globalThis.RTPostModel.normalizeSettings;
+  const before=normalize(changes[key].oldValue).historyLimit,limit=normalize(changes[key].newValue).historyLimit;
+  if(limit===before)return;
+  try{if(limit===20)await store.clear();else if(limit>0 && (before===0 || limit<before))await store.trimAll(limit);}catch{}
  });
  globalThis.RTViewedBroker=Object.freeze({handle});
 })();
