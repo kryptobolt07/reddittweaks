@@ -99,13 +99,16 @@
       let result;item.inFlight=true;try{result=await call('ingest',item.batch);}finally{item.inFlight=false;}const index=pending.indexOf(item);if(index>=0)pending.splice(index,1);writeError=null;cacheActivity.get(active)?.();if(result.changed!==false || result.coverageChanged)notify({owner:active,changed:true,roomIds:result.roomIds,...(result.coverageChanged?{coverageChanged:true}:{})});}
   }
   function schedule(){if(!chatSearchEnabled)return Promise.resolve();if(contextError)return Promise.reject(contextError);if(draining)return queue;draining=true;notify({owner,statusOnly:true,savingPending:pending.length>0});queue=queue.then(drain).catch(error=>{writeError=error;notify({owner,error:error.message});}).finally(()=>{draining=false;notify({owner,statusOnly:true,savingPending:pending.length>0});});return queue;}
-  function enqueue(batch) {
+  function enqueue(batch,detailBytes) {
     if(!chatSearchEnabled)return Promise.resolve();
     if(contextError)return Promise.reject(contextError);
     const events=Array.isArray(batch.events)?batch.events:[],identities=Array.isArray(batch.identities)?batch.identities.slice(0,1000):[],additions=[];
-    for(let offset=0;offset<Math.max(1,events.length);offset+=500){const isLast=offset+500>=events.length;const chunk={owner:batch.owner,roomId:batch.roomId,events:events.slice(offset,offset+500).map(event=>event.room_id?event:{...event,room_id:batch.roomId}),identities,coverage:isLast?batch.coverage:undefined,...(isLast && batch.span?{span:batch.span}:{}),...(batch.source?{source:batch.source}:{})};additions.push({batch:chunk,bytes:JSON.stringify(chunk).length*2});}
-    const count=items=>items.reduce((sum,item)=>sum+item.batch.events.length,0),size=items=>items.reduce((sum,item)=>sum+item.bytes,0);
-    if(pending.length+additions.length>MAX_BATCHES || count(pending)+count(additions)>MAX_EVENTS || size(pending)+size(additions)>MAX_BYTES){
+    const singleChunk=events.length<=500;
+    for(let offset=0;offset<Math.max(1,events.length);offset+=500){const isLast=offset+500>=events.length;const slice=singleChunk?events:events.slice(offset,offset+500);const normalized=slice.every(event=>event.room_id)?slice:slice.map(event=>event.room_id?event:{...event,room_id:batch.roomId});const chunk={owner:batch.owner,roomId:batch.roomId,events:normalized,identities,coverage:isLast?batch.coverage:undefined,...(isLast && batch.span?{span:batch.span}:{}),...(batch.source?{source:batch.source}:{})};additions.push({batch:chunk,bytes:singleChunk && Number.isFinite(detailBytes)?detailBytes:JSON.stringify(chunk).length*2});}
+    let pendingEvents=0,pendingBytes=0,addedEvents=0,addedBytes=0;
+    for(const item of pending){pendingEvents+=item.batch.events.length;pendingBytes+=item.bytes;}
+    for(const item of additions){addedEvents+=item.batch.events.length;addedBytes+=item.bytes;}
+    if(pending.length+additions.length>MAX_BATCHES || pendingEvents+addedEvents>MAX_EVENTS || pendingBytes+addedBytes>MAX_BYTES){
       overflowError=Error(writeError ? `Saved message storage failed: ${writeError.message}. Waiting to recover captured messages.` : 'Saved message buffer is full. Recovering captured messages…');overflowError.account=batch.owner;overflowError.id=crypto.randomUUID();captureGaps.add(batch.owner);
       notify({owner:batch.owner,error:overflowError.message});
       document.dispatchEvent(new CustomEvent('rcs-message-cache-rejected',{detail:JSON.stringify({owner:batch.owner,id:overflowError.id,roomId:batch.roomId,events:events.map(event=>({roomId:event.room_id || batch.roomId,id:event.event_id,sender:event.sender})),identities:identities.map(person=>person.id)})}));
@@ -120,7 +123,7 @@
     }
     return schedule();
   }
-  document.addEventListener('rcs-message-cache-batch',event=>{if(!chatSearchEnabled)return;let batch;try{batch=JSON.parse(event.detail);}catch{return;}if(batch && RCSMessageStore.ownerOK(batch.owner))enqueue(batch).catch(()=>{});});
+  document.addEventListener('rcs-message-cache-batch',event=>{if(!chatSearchEnabled)return;let batch;try{batch=JSON.parse(event.detail);}catch{return;}if(batch && RCSMessageStore.ownerOK(batch.owner))enqueue(batch,typeof event.detail==='string'?event.detail.length*2:undefined).catch(()=>{});});
   runtime?.onMessage?.addListener((message,sender)=>{
     if(message?.scope==='rt-posts' && message.action==='settings-changed' && (!sender?.id || !runtime?.id || sender.id===runtime.id)){
       setEnabled(message.settings?.chatSearch!==false);

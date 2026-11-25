@@ -811,11 +811,12 @@
     let value;try{value=JSON.parse(event.detail);}catch{return;}
     const owner=globalThis.RCSDirectory?.getOwner();
     if(!owner || value?.owner!==owner)return;
+    let changed=false;
     for(const [id,meta] of Object.entries(value.roomMeta || {})){
       const record=directory.get(id);
-      if(record && Number.isFinite(meta.unreadCount) && meta.unreadCount>=0)directory.set(id,{...record,unreadCount:meta.unreadCount});
+      if(record && Number.isFinite(meta.unreadCount) && meta.unreadCount>=0 && record.unreadCount!==meta.unreadCount){directory.set(id,{...record,unreadCount:meta.unreadCount});changed=true;}
     }
-    for(const control of controls.values())if(control.kind==='list')control.render();
+    if(changed)for(const control of controls.values())if(control.kind==='list'){control.cacheVersion=(control.cacheVersion || 0)+1;control.render();}
   });
   document.addEventListener('rcs-history-changed',event=>{
     let value;try{value=JSON.parse(event.detail);}catch{return;}

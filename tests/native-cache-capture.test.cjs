@@ -336,3 +336,24 @@ test('a late cache consumer receives loaded timelines once without a flush timeo
   const count=captured.length;env.W.document.dispatchEvent(new env.W.CustomEvent('rcs-message-cache-listening'));env.client.emit('sync');await wait(30);
   assert.equal(captured.length,count,'further listening and unchanged sync signals do not replay snapshots');assert.equal(env.api.calls.length,0);
 });
+test('unchanged sync snapshots skip room member/state scans and directoryContext reads getRooms once',async t=>{
+  let memberReads=0,roomListCalls=0;
+  const ev=message('m1','steady');
+  const room={roomId:'steady',name:'Steady',getMyMembership:()=>'join',getLiveTimeline:()=>({getEvents:()=>[ev]}),getThreads:()=>[],getMembers:()=>{memberReads++;return [];},currentState:{getStateEvents:()=>[]}};
+  const env=setup(client=>{
+    client.getRooms=()=>{roomListCalls++;return [room];};
+    client.getRoom=id=>id==='steady'?room:null;
+  });
+  t.after(()=>env.dom.window.close());
+  await wait(30);
+  const initialMembers=memberReads;
+  memberReads=0;roomListCalls=0;
+  env.client.emit('sync');
+  await wait(30);
+  assert.equal(memberReads,0,'unchanged room skips cachedRoom/rememberMembers on sync');
+  // Trigger directory context once via identity-context / directory signal.
+  roomListCalls=0;
+  await wait(400);
+  assert.ok(roomListCalls<=1,'directoryContext reads client.getRooms at most once per debounced update');
+  assert.ok(initialMembers>=1);
+});

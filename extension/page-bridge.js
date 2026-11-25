@@ -120,12 +120,18 @@
   }
   function directoryContext(ctx) {
     const owner=ctx.client.getUserId();
+    const rooms=ctx.client.getRooms?.() || [];
     const map=ctx.client.getAccountData?.('m.direct')?.getContent() || {};
-    const ids=[...new Set([...(ctx.client.getRooms?.() || []).map(room=>room.roomId),...Object.values(map).filter(Array.isArray).flat()])].filter(id=>typeof id==='string').sort();
-    const roomMeta=Object.fromEntries((ctx.client.getRooms?.() || []).map(room=>{
+    const idSet=new Set();
+    const roomMeta={};
+    for(const room of rooms){
+      if(typeof room?.roomId==='string')idSet.add(room.roomId);
       const event=room.getStateEvents?.('com.reddit.chat.type','') || room.currentState?.getStateEvents?.('com.reddit.chat.type','');
-      return [room.roomId,{membership:room.getMyMembership?.() || '',type:event?.getContent?.()?.type || '',name:room.name || '',...(unreadCount(room)!==undefined ? {unreadCount:unreadCount(room)} : {}),hasParticipants:(room.getMembers?.() || []).some(member=>member.userId!==owner && ['join','invite'].includes(member.membership))}];
-    }));
+      const unread=unreadCount(room);
+      roomMeta[room.roomId]={membership:room.getMyMembership?.() || '',type:event?.getContent?.()?.type || '',name:room.name || '',...(unread!==undefined ? {unreadCount:unread} : {}),hasParticipants:(room.getMembers?.() || []).some(member=>member.userId!==owner && ['join','invite'].includes(member.membership))};
+    }
+    for(const list of Object.values(map))if(Array.isArray(list))for(const id of list)if(typeof id==='string')idSet.add(id);
+    const ids=[...idSet].sort();
     return {owner,ids,roomMeta,revision:JSON.stringify(ids),metadataVersion,changedIds:[...changedRooms],profileChangedIds:[...profileChangedRooms]};
   }
   function detachNativeClient() {
@@ -263,8 +269,9 @@
     const events=[],ids=new Set(identityIds),identities=[];
     for(const {saved,signature} of values) {
       const key=saved.room_id+'\n'+saved.event_id;
-      if(captureSignatures.get(key)!==signature){events.push(saved);captureSignatures.delete(key);captureSignatures.set(key,signature);}
-      if(saved.sender)ids.add(saved.sender);
+      const changed=captureSignatures.get(key)!==signature;
+      if(changed){events.push(saved);captureSignatures.delete(key);captureSignatures.set(key,signature);}
+      if(saved.sender && (changed || !capturedIdentities.has(saved.sender)))ids.add(saved.sender);
     }
     // Bound dedup memory independently of the twenty-room search working set.
     while(captureSignatures.size>10000)captureSignatures.delete(captureSignatures.keys().next().value);
@@ -305,9 +312,37 @@
       document.dispatchEvent(new CustomEvent('rcs-store-control-request',{detail:JSON.stringify({id,owner,action,...payload})}));
     });
   }
-  function nativeRoomEvents(native) {
+  function nativeRoomEvents(native,before) {
     const live=native.getLiveTimeline?.()?.getEvents?.() || native.getUnfilteredTimelineSet?.()?.getEvents?.() || [];
-    return [...live,...(native.getThreads?.() || []).flatMap(thread=>[thread.rootEvent,...(thread.events || thread.getEvents?.() || [])].filter(Boolean))];
+    const threads=native.getThreads?.() || [];
+    if(before){
+      let pos=0,same=true;
+      for(let i=0;i<live.length;i++){
+        if(pos>=before.length || nativeEventRef(live[i])!==before[pos++]){same=false;break;}
+      }
+      if(same){
+        for(let t=0;t<threads.length && same;t++){
+          const thread=threads[t];
+          if(thread?.rootEvent){
+            if(pos>=before.length || nativeEventRef(thread.rootEvent)!==before[pos++]){same=false;break;}
+          }
+          const tEvents=thread?.events || thread?.getEvents?.() || [];
+          for(let j=0;j<tEvents.length;j++){
+            const ev=tEvents[j];if(!ev)continue;
+            if(pos>=before.length || nativeEventRef(ev)!==before[pos++]){same=false;break;}
+          }
+        }
+      }
+      if(same && pos===before.length)return null;
+    }
+    const values=live.slice();
+    for(let t=0;t<threads.length;t++){
+      const thread=threads[t];
+      if(thread?.rootEvent)values.push(thread.rootEvent);
+      const tEvents=thread?.events || thread?.getEvents?.() || [];
+      for(let j=0;j<tEvents.length;j++)if(tEvents[j])values.push(tEvents[j]);
+    }
+    return values;
   }
   const nativeEventRef=value=>value?.event || value;
   const weakEventRef=value=>value && typeof value==='object'?new WeakRef(value):value;
@@ -326,11 +361,18 @@
       while(state.pending.size){
         guard();const [key,job]=state.pending.entries().next().value;state.pending.delete(key);
         if(job.identities){const sent=publishCache(state,undefined,[],'cache-recovery',undefined,job.identities);if(sent){units++;bytes+=sent.bytes;}if(bytes>=512*1024)await barrier();continue;}
-        let values;try{values=job.history ? [...job.history.events.values()] : nativeRoomEvents(job.native);if(job.native)rememberMembers(stateOf(cachedRoom(job.native)),state);}catch{state.incomplete=true;continue;}
         const before=state.snapshots.get(key);
-        // Remember native event references, not a second copy of every body.
-        // Edits/redactions are independently captured by the native handlers.
-        if(!job.force && before?.length===values.length && values.every((value,i)=>nativeEventRef(value)===before[i]))continue;
+        let values;
+        try{
+          if(job.history){
+            values=[...job.history.events.values()];
+            if(!job.force && before?.length===values.length && values.every((value,i)=>nativeEventRef(value)===before[i]))continue;
+          }else{
+            values=nativeRoomEvents(job.native,job.force?null:before);
+            if(!values)continue;
+          }
+          if(job.native)rememberMembers(stateOf(cachedRoom(job.native)),state);
+        }catch{state.incomplete=true;continue;}
         const cleared=clearBaseline(state),clearedRoom=!before && cleared?.get(key);
         const refs=values.map(nativeEventRef);
         if(!job.force && clearedRoom?.length===refs.length && refs.every((ref,i)=>ref===readEventRef(clearedRoom[i]))){
@@ -507,15 +549,21 @@
     const event=value?.event || value;
     const id=event?.room_id || value?.getRoomId?.() || roomId;
     if(!id || typeof event?.event_id!=='string' || !event.event_id || event.event_id.startsWith('~') || !watchedClient)return;
-    const raw={...event,room_id:id};
-    const ctx={client:watchedClient},owner=watchedClient.getUserId();
+    const type=event.type;
+    const isMessage=type==='m.room.message' || type==='m.sticker' || type==='m.room.redaction';
+    const isMember=type==='m.room.member';
+    const owner=watchedClient.getUserId();
     if(owner!==watchedOwner)return;
-    if(raw.type==='m.room.member'){rememberMembers([raw],ctx);publishIdentityChanges(ctx,new Set([raw.state_key]));signalDirectory('RoomState.events',{roomId:id,event:raw});}
-    const interested=[...running.values()].some(job=>!job.cancelled && job.request?.method==='history' && job.request.roomId===id);
+    const freshEntry=backfillFreshnessAt.get(owner);
+    let interested=false;
+    for(const job of running.values()){if(!job.cancelled && job.request?.method==='history' && job.request.roomId===id){interested=true;break;}}
     const room=histories.get(owner,id,interested);
+    if(!isMessage && !isMember && !room && !freshEntry)return;
+    const raw=event.room_id===id?event:{...event,room_id:id};
+    const ctx={client:watchedClient};
+    if(isMember){rememberMembers([raw],ctx);publishIdentityChanges(ctx,new Set([raw.state_key]));signalDirectory('RoomState.events',{roomId:id,event:raw});}
     const changed=room ? histories.accept(room,raw) : [];
     const dirty=room?.dirtyThreads.size>0 || raw.unsigned?.['m.relations']?.['m.thread']?.count>0;
-    const freshEntry=backfillFreshnessAt.get(owner);
     if(freshEntry && id){
       const prev=freshEntry.rooms.get(id),seqVal=sequence(raw),prevSeq=seqNumOf(prev?.lastSeq);
       const nextTs=Math.max(prev?.timestamp || 0,Number.isFinite(raw.origin_server_ts)?raw.origin_server_ts:0);
@@ -524,7 +572,7 @@
         freshEntry.rooms.set(id,{roomId:id,lastSeq:nextSeq,membership:prev?.membership || 'join',timestamp:nextTs});
       }
     }
-    publishCache(ctx,id,[raw],'native',dirty ? {complete:false,dateComplete:false} : undefined);
+    if(isMessage || dirty)publishCache(ctx,id,isMessage?[raw]:[],'native',dirty ? {complete:false,dateComplete:false} : undefined);
     if(!room)return;
     document.dispatchEvent(new CustomEvent('rcs-history-changed',{detail:JSON.stringify({owner,roomId:room.roomId,
       records:projectHistory(room,ctx,changed),redacted:[...room.removed],complete:room.complete,dateInvalidated:room.dirtyThreads.size>0})}));

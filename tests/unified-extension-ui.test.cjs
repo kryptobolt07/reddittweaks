@@ -707,7 +707,7 @@ for(const scope of ['people','all','messages'])test(scope+' shows a reusable loa
   const p=await setup(t,{scope}),c=p.control;await p.search('alex');const searches=p.searches.length,people=c.people.bind(c);let scans=0;c.people=(...args)=>{scans++;return people(...args);};
   p.type('co');const placeholder=p.find('.skeleton-list');assert.equal(c.panel.hidden,false);assert.equal(c.results.getAttribute('aria-busy'),'true');assert.equal(scans,0);assert.equal(p.searches.length,searches);
   p.type('cof');p.emit({owner:c.owner,statusOnly:true,importing:true});c.render();assert.equal(p.find('.skeleton-list'),placeholder);assert.equal(scans,0);await p.tick(179);assert.equal(p.find('.skeleton-list'),placeholder);assert.equal(p.searches.length,searches);
-  await p.tick(1);assert.equal(c.results.querySelector('.skeleton-list'),null);assert.equal(c.results.getAttribute('aria-busy'),'false');assert.ok(scans>0);
+  await p.tick(1);assert.equal(c.results.querySelector('.skeleton-list'),null);assert.equal(c.results.getAttribute('aria-busy'),'false');assert.ok(scope==='messages'?p.searches.length>searches:scans>0);
   p.type('alex');assert.equal(p.find('.skeleton-list'),placeholder);await p.key('Escape');assert.equal(c.panel.hidden,true);await p.tick(200);assert.equal(c.panel.hidden,true);c.clearQuery();await settle();assert.equal(c.results.querySelector('.skeleton-list'),null);
 });
 
@@ -1084,4 +1084,20 @@ test('a row re-keyed by new details keeps its measured height as the estimate',a
   assert.equal(c.items.find(entry=>entry.key===item.key).height,137);
   c.messageHeights.clear();c.itemsStamp='';c.makeItems();
   assert.equal(c.items.find(entry=>entry.key===item.key).height,137,'not reset to the generic estimate');
+});
+
+test('Messages tab defers summary reloads and skips people filtering on saved updates until switching back to People',async t=>{
+  const p=await setup(t,{scope:'messages'}),c=p.control;
+  await p.search('coffee');
+  let summaryCalls=0,peopleCalls=0;
+  const origSummaries=p.w.RCSMessages.summaries,origPeople=c.people.bind(c);
+  p.w.RCSMessages.summaries=async(...args)=>{summaryCalls++;return origSummaries(...args);};
+  c.people=(...args)=>{peopleCalls++;return origPeople(...args);};
+  p.emit({owner:c.owner,changed:true,roomIds:['alex']});
+  await p.tick(800);await settle();
+  assert.equal(summaryCalls,0,'Messages tab does not reload all room summaries during saved message updates');
+  assert.equal(peopleCalls,0,'Messages tab does not run matchPeople on saved message refreshes');
+  assert.equal(c.summaryDirty,true,'summaries remain marked dirty until a chat-list scope is opened');
+  await p.click('[data-scope="people"]');await settle();
+  assert.equal(summaryCalls,1,'switching to People loads the deferred summaries once');
 });
