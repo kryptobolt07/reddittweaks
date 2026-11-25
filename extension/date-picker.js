@@ -295,10 +295,15 @@
       const list=make('div','calendar-months');list.setAttribute('aria-label','Months');
       for(let month=this.sheetFirst;month<=this.sheetLast;month=this.addMonth(month,1)){
         const monthKey=iso(month).slice(0,7),block=make('section','calendar-month-block');block.dataset.month=monthKey;
-        const header=make('div','calendar-month-header'),text=month.toLocaleDateString(undefined,{month:'long',year:'numeric'});
-        const label=make('button','calendar-month-title');label.type='button';label.append(make('span','',text),glyph('caret'));label.setAttribute('aria-label',`${text}, choose another month or year`);
-        label.addEventListener('click',()=>{this.view=month;this.chooser='year';this.render();this.focusOption(this.element.querySelector('.calendar-option[aria-pressed=true]:not(:disabled)')||this.element.querySelector('.calendar-option:not(:disabled)'));});
-        header.append(label);
+        const header=make('div','calendar-month-header'),controls=make('div','calendar-month-controls');
+        for(const kind of ['month','year']){
+          const text=kind==='month'?month.toLocaleDateString(undefined,{month:'long'}):String(month.getFullYear());
+          const button=make('button',`calendar-month-title calendar-${kind}`);button.type='button';button.append(make('span','',text),glyph('caret'));
+          button.setAttribute('aria-label',`${text}, choose ${kind}`);
+          button.addEventListener('click',()=>{this.view=month;this.chooser=kind;this.render();this.focusOption(this.element.querySelector('.calendar-option[aria-pressed=true]:not(:disabled)')||this.element.querySelector('.calendar-option:not(:disabled)'));});
+          controls.append(button);
+        }
+        header.append(controls);
         const todayBtn=this.sheetTodayButton(monthKey);if(todayBtn)header.append(todayBtn);
         block.append(header,this.calendar(month,{weekdays:false}));list.append(block);
       }
@@ -365,11 +370,13 @@
     .date-sheet .calendar-weekdays{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));flex:none;height:26px;align-items:center;border-bottom:1px solid var(--rcs-line);color:var(--rcs-muted);font-size:12px;font-weight:600;text-align:center}
     .date-sheet .calendar-months{flex:1 1 auto;min-height:0;margin:0 -16px;padding:0 16px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
     .date-sheet .calendar-month-block{padding:2px 0 12px}.date-sheet .calendar-month-block:last-child{min-height:100%}
-    .date-sheet .calendar-month-header{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;background:var(--rcs-bg)}
-    .date-sheet .calendar-month-title{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 10px 0 12px;border:1px solid var(--rcs-line);border-radius:8px;background:var(--rcs-soft);color:var(--rcs-text);font-size:15px;font-weight:700;line-height:1;text-align:start}
-    .date-sheet .calendar-month-title svg{width:15px;height:15px;flex:none;color:var(--rcs-muted)}
+    .date-sheet .calendar-month-header{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:center;padding:6px 0 8px;background:var(--rcs-bg)}
+    .date-sheet .calendar-month-controls{display:inline-flex;align-items:center;gap:8px}
+    .date-sheet .calendar-month-title{display:inline-flex;align-items:center;gap:5px;height:34px;padding:0 10px 0 12px;border:1px solid var(--rcs-line);border-radius:8px;background:var(--rcs-soft);color:var(--rcs-text);font-size:15px;font-weight:700;line-height:1;white-space:nowrap}
+    .date-sheet .calendar-month-title svg{width:14px;height:14px;flex:none;color:var(--rcs-muted)}
     .date-sheet .calendar-month-title:hover,.date-sheet .calendar-month-title:active{background:var(--rcs-hover)}
-    .date-sheet .date-sheet-today{flex:none;height:32px;padding:0 11px;border:0;border-radius:8px;background:transparent;color:var(--calendar-accent);font-size:13px;font-weight:700;line-height:1}
+    .date-sheet .date-sheet-today{flex:none;height:32px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:var(--calendar-accent);font-size:13px;font-weight:700;line-height:1}
+    .date-sheet .calendar-month-header .date-sheet-today{position:absolute;right:0}
     .date-sheet .date-sheet-today:hover,.date-sheet .date-sheet-today:active{background:var(--calendar-band)}
     .date-sheet .date-sheet-chooser-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:none;border-bottom:1px solid var(--rcs-line)}
     .date-sheet .date-sheet-chooser-tabs{display:flex;align-items:center;gap:4px}

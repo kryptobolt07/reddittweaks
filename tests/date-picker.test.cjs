@@ -169,10 +169,11 @@ test('a phone range is picked across months and applied from the sticky footer',
   el.querySelector('.calendar-apply').click();
   assert.deepEqual(changes.at(-1).dates,{from:'2026-09-28',to:'2026-10-03'});assert.equal(closed.length,1);
 });
-test('a phone month title jumps to any year and month, and the backdrop closes without applying',t=>{
+test('a phone month/year heading jumps to any year and month, and the backdrop closes without applying',t=>{
   const {W,el,changes,closed}=phoneSetup(t);
-  assert.ok(el.querySelector('.calendar-month-title svg'),'month heading shows a caret affordance');
-  el.querySelector('.calendar-month-title').click();
+  assert.ok(el.querySelector('.calendar-month-title.calendar-month svg'),'month button shows a caret affordance');
+  assert.ok(el.querySelector('.calendar-month-title.calendar-year svg'),'year button shows a caret affordance');
+  el.querySelector('.calendar-month-title.calendar-year').click();
   assert.equal(el.querySelector('.date-sheet-title').textContent,'Choose year');
   el.querySelector('[data-year="2019"]').click();
   assert.equal(el.querySelector('.date-sheet-title').textContent,'Choose month');
@@ -182,14 +183,12 @@ test('a phone month title jumps to any year and month, and the backdrop closes w
   W.document.querySelector('.date-sheet-scrim').click();
   assert.equal(closed.length,1);assert.equal(changes.length,0,'nothing applied');assert.equal(W.document.querySelector('.date-sheet-scrim'),null);
 });
-test('phone month heading opens year/month tabs, disables future months, and offers a Today jump when away',t=>{
+test('phone month and year buttons open their choosers directly, disable future months, and offer a Today jump when away',t=>{
   const {el}=phoneSetup(t);
   assert.equal(el.querySelector('.date-sheet-jump'),null,'no duplicate month/year bar above weekdays');
   assert.equal(el.querySelector('[data-month="2026-10"] .date-sheet-today'),null,'Today jump is omitted on the current month');
   assert.ok(el.querySelector('[data-month="2026-09"] .date-sheet-today'),'older months offer a Today jump');
-  el.querySelector('[data-month="2026-10"] .calendar-month-title').click();
-  assert.equal(el.querySelector('.date-sheet-title').textContent,'Choose year');
-  el.querySelector('.date-chooser-tab.calendar-month').click();
+  el.querySelector('[data-month="2026-10"] .calendar-month-title.calendar-month').click();
   assert.equal(el.querySelector('.date-sheet-title').textContent,'Choose month');
   assert.equal(el.querySelector('[data-month="10"]').disabled,true,'November 2026 is disabled when today is Oct 29');
   assert.equal(el.querySelector('[data-month="11"]').disabled,true,'December 2026 is disabled when today is Oct 29');
@@ -198,9 +197,9 @@ test('phone month heading opens year/month tabs, disables future months, and off
   el.querySelector('[data-month="2026-03"] .date-sheet-today').click();
   assert.ok(el.querySelector('[data-month="2026-10"]'),'Today jump returns to current month');
   // Jumping from December 2025 to 2026 clamps the month to October 2026.
-  el.querySelector('[data-month="2026-10"] .calendar-month-title').click();
+  el.querySelector('[data-month="2026-10"] .calendar-month-title.calendar-year').click();
   el.querySelector('[data-year="2025"]').click();el.querySelector('[data-month="11"]').click();
-  el.querySelector('[data-month="2025-12"] .calendar-month-title').click();
+  el.querySelector('[data-month="2025-12"] .calendar-month-title.calendar-year').click();
   el.querySelector('[data-year="2026"]').click();
   assert.equal(el.querySelector('[data-month="9"]').getAttribute('aria-pressed'),'true');
 });
