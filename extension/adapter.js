@@ -250,10 +250,12 @@
   }
   let messageHighlight,highlightTimer;
   function nearestScroller(element){
-    for(let current=element?.parentElement || element?.getRootNode?.().host;current && current!==document.body && current!==document.documentElement;current=current.parentElement || current.getRootNode?.().host){
+    let room=null;
+    for(let current=element?.assignedSlot || element?.parentElement || element?.getRootNode?.().host;current && current!==document.body && current!==document.documentElement;current=current.assignedSlot || current.parentElement || current.getRootNode?.().host){
+      if(!room && current.matches?.(selectors.room))room=current;
       if(current.scrollHeight>current.clientHeight+4 && /auto|scroll/.test(getComputedStyle(current).overflowY || ''))return current;
     }
-    return null;
+    return room ? scrollContainer(room) : null;
   }
   function revealMessage(element,query='',options={},expanded=false){
     // Use native expansion controls and paint highlights without rewriting the
