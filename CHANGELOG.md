@@ -1,4 +1,4 @@
-# Unreleased
+# 0.67.0 preview
 
 - **Filters keep your place:** changing or clearing a filter on a profile or community feed keeps Sort & filter where it was on screen, or goes back to it if you had scrolled past, instead of leaving you deep inside the unfiltered feed. A sparse profile filter no longer moves the page up and down while it loads.
 - **Profile search:** no Visual tab among a profile's search tabs; an image search started there opens the global Visual tab.
@@ -11,6 +11,9 @@
 - **Previews and sound:** Reddit re-applies your saved Reddit volume to playing feed videos as you scroll. That unmuted previews, so the browser paused them before your first tap and you heard them after it. Previews now keep Reddit's player muted until they end or you take over. Previews refused by the browser also start on your next tap.
 - **Lens on embeds:** every embedded video gets the lens and the ⋯ *Find visually similar* item, from any provider. Some providers' stills come from the video's address; others use Reddit's own copy of the post's still.
 - **New options:** *Signed-out comment search* (under Profile search, on by default) turns off the signed-out search for comments Reddit leaves out of profiles. *NSFW results by default* (Visual search, off by default) starts the Visual tab with NSFW included.
+- **Chat:** opening a room and refreshing the results list preserve the visible result's position. The calendar has clearer month and year navigation on desktop and phone.
+- **Profile feeds:** Back from a post restores the parked feed and anchors the scroll position to the card that opened the post.
+- **Minor increment:** the expanded Media viewer and touch previews, new search preferences, and calendar redesign add user-facing features beyond 0.66.0.
 - Not verified: press and hold on a real touch screen, Firefox, and why the Visual tab sometimes stays grey beyond infini.wtf's slow analysis.
 
 # 0.66.0 preview
