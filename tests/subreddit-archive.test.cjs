@@ -669,6 +669,99 @@ test('temporary archive errors retry automatically before asking the reader, wit
   retry.click();for(let i=0;i<4;i++)await tick();assert.ok(ctx.doc.querySelector('.rt-native-card[data-fullname="t3_ok1"]'),'manual Retry loads');
 });
 
+test('replacing an archive search cancels its pending retry',async t=>{
+  const ctx=await boot({autoRetries:1,autoRetryWaits:[60000],pages:options=>options.parsed.terms.includes('first')?
+    [Object.assign(Error('Synthetic timeout'),{code:'timeout'})]:[{items:[post('next',1500000000)],hasMore:false,cursor:null}]});
+  t.after(()=>{ctx.sa.destroy();ctx.W.close();});
+  let retry;
+  const schedule=ctx.W.setTimeout.bind(ctx.W);
+  ctx.W.setTimeout=(callback,delay,...args)=>{
+    if(delay>59000)retry=callback;
+    return schedule(callback,delay,...args);
+  };
+  await search(ctx,'first');
+  const retired=ctx.sa.searchState();
+  assert.equal(typeof retry,'function');
+  await search(ctx,'second');
+  retry();
+  await tick();
+  assert.deepEqual(ctx.calls.map(options=>options.parsed.terms[0]),['first','second']);
+  assert.equal(retired.autoRetryTimer,null);
+});
+
+test('a parked archive feed resumes its own retry on return',async t=>{
+  const ctx=await boot({autoRetries:1,autoRetryWaits:[60000],pages:(_,call)=>call===1?
+    [Object.assign(Error('Synthetic timeout'),{code:'timeout'})]:[{items:[post('next',1500000000)],hasMore:false,cursor:null}]});
+  t.after(()=>{ctx.sa.destroy();ctx.W.close();});
+  const retries=[],schedule=ctx.W.setTimeout.bind(ctx.W);
+  ctx.W.setTimeout=(callback,delay,...args)=>{
+    if(delay>59000)retries.push(callback);
+    return schedule(callback,delay,...args);
+  };
+  await open(ctx);
+  const state=ctx.sa.current(),deadline=state.autoRetryAt;
+  ctx.W.history.pushState({},'','/r/gone/comments/abc12/title/');
+  ctx.sa.scan();
+  await tick();
+  assert.equal(state.autoRetryTimer,null);
+  retries[0]();
+  assert.equal(ctx.calls.length,1);
+  ctx.W.history.pushState({},'','/r/gone/?rt_view=archive');
+  ctx.sa.scan();
+  await tick();
+  assert.equal(ctx.sa.current(),state);
+  assert.equal(state.autoRetryAt,deadline);
+  assert.equal(retries.length,2);
+  retries[0]();
+  assert.equal(ctx.calls.length,1,'the pre-navigation callback cannot retry the returned state');
+  retries[1]();
+  await tick();
+  assert.equal(ctx.calls.length,2);
+  assert.equal(ctx.sa.listEl.querySelector('[data-fullname="t3_next"]').isConnected,true);
+});
+
+test('archived thread retry is cancelled when another thread opens',async t=>{
+  const reads=[],ctx=await boot({autoRetries:1,autoRetryWaits:[60000],archive:async message=>{
+    reads.push(message);
+    if(message.ids?.includes('old'))throw Error('Synthetic timeout');
+    return {ok:true,posts:[]};
+  }});
+  t.after(()=>{ctx.sa.destroy();ctx.W.close();});
+  let retry;
+  const schedule=ctx.W.setTimeout.bind(ctx.W);
+  ctx.W.setTimeout=(callback,delay,...args)=>{
+    if(delay>59000)retry=callback;
+    return schedule(callback,delay,...args);
+  };
+  ctx.W.history.pushState({},'','/r/gone/comments/old/title/');ctx.sa.scan();
+  await tick();
+  const retired=ctx.sa.threadState;
+  assert.equal(typeof retry,'function');
+  ctx.W.history.pushState({},'','/r/gone/comments/new/title/');ctx.sa.scan();
+  await tick();
+  retry();
+  await tick();
+  assert.deepEqual(reads.map(message=>message.ids?.[0]),['old','new']);
+  assert.equal(retired.autoRetryTimer,null);
+});
+
+test('archive search paging inserts higher-ranked rows without detaching existing results or moving focus',async t=>{
+  const ctx=await boot({pages:options=>options.cursor?
+    [{items:[post('best',1400000000,{score:20})],hasMore:false,cursor:null}]:
+    [{items:[post('first',1500000000),post('second',1490000000,{score:0})],hasMore:true,cursor:1490000000}]});
+  t.after(()=>{ctx.sa.destroy();ctx.W.close();});
+  await search(ctx,'example',{sort:'top'});
+  const list=ctx.sa.search.list,row=list.firstElementChild,link=row.querySelector('a'),divider=list.children[1];
+  link.focus();
+  assert.equal(ctx.doc.activeElement,link);
+  ctx.sa.loadMoreSearch();
+  await tick();
+  assert.deepEqual(resultIds(ctx),['t3_best','t3_first','t3_second']);
+  assert.equal(list.children[2],row);
+  assert.equal(list.children[3],divider);
+  assert.equal(ctx.doc.activeElement,link);
+});
+
 test('deleted authors get Reddit\'s grey silhouette avatar and no profile lookup',async()=>{
   const {W}=await boot();
   const card=W.RTPostDiscovery.archiveCard(archived(W,{id:'del1',author:'[deleted]',is_self:true,selftext:'x'})).querySelector('shreddit-post');

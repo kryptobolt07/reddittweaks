@@ -13,6 +13,35 @@ const tick=async(n=6)=>{for(let i=0;i<n;i++)await new Promise(r=>setImmediate(r)
 // A page of `count` posts, newest first, starting at `from`.
 const batch=(prefix,count,from,extra={})=>Array.from({length:count},(_,i)=>post(prefix+i,from-i*60,extra));
 
+test('archive scroll anchors keep the exact result count without scanning every card or sorting again',async t=>{
+  const now=Math.floor(Date.now()/1000),rows=batch('anchor',35,now-86400+34*60);
+  const ctx=await boot({url:'https://www.reddit.com/r/gone/?rt_view=archive&rt_top=1&rt_date=24h',pages:()=>[{items:rows,hasMore:false,cursor:null}]});
+  t.after(()=>{ctx.sa.destroy();ctx.W.close();});
+  // Refilter at the exact inclusive cutoff before sampling the scroll position.
+  ctx.W.Date.now=()=>now*1000;
+  ctx.sa.renderList();
+  Object.defineProperty(ctx.W,'scrollY',{value:500});
+  let reads=0;
+  [...ctx.sa.listEl.children].forEach((node,index)=>{
+    node.getBoundingClientRect=()=>{reads++;return {top:index*30-500,bottom:(index+1)*30-500};};
+  });
+  const state=ctx.sa.current(),initial=ctx.sa.visibleItems(state);
+  ctx.sa.saveFeedAnchor();
+  const saved=JSON.parse(ctx.W.sessionStorage.getItem(ctx.sa.feedAnchorKey()));
+  assert.equal(reads<=5,true);
+  assert.equal(saved.fullname,'t3_anchor19');
+  assert.equal(saved.offset,70);
+  assert.equal(saved.count,35);
+  ctx.W.Date.now=()=>now*1000+500;
+  ctx.sa.saveFeedAnchor();
+  assert.equal(ctx.sa.visibleItems(state),initial);
+  assert.equal(JSON.parse(ctx.W.sessionStorage.getItem(ctx.sa.feedAnchorKey())).at,saved.at);
+  ctx.W.Date.now=()=>(now+1)*1000;
+  ctx.sa.saveFeedAnchor();
+  assert.equal(JSON.parse(ctx.W.sessionStorage.getItem(ctx.sa.feedAnchorKey())).count,34);
+  assert.equal(ctx.sa.visibleItems(state)[0].fullname,initial[0].fullname);
+});
+
 // Records every IntersectionObserver so tests can play the browser's part.
 function fakeIO(W){
   const observers=[];

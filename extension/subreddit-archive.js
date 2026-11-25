@@ -292,7 +292,9 @@
       }else{this.syncAll();this.refresh();if(!reuse)this.restoreFeedAnchor();this.mountedBefore=true;}
     }
     unmount(){
-      const m=this.mounted;if(!m)return;this.mounted=null;this.threadState?.modulesController?.abort();this.scrollKeeper?.stop();this.scrollKeeper=null;this.threadState=null;
+      const m=this.mounted;if(!m)return;this.mounted=null;
+      if(this.threadState){this.cancelAutoRetry(this.threadState);this.threadState.modulesController?.abort();}
+      this.scrollKeeper?.stop();this.scrollKeeper=null;this.threadState=null;this.savedFeedAnchor=null;
       this.threadViewport?.removeEventListener('change',this.onThreadViewport);this.threadViewport=null;
       this.io?.disconnect();this.io=null;this.pickerHost?.remove();this.closeMenus();
       if(!m.thread)this.feedStash={name:m.name.toLowerCase(),states:this.states,scrollY:this.feedScrollY ?? scrollY,at:Date.now()};
@@ -309,7 +311,8 @@
       if(m.modal.isConnected)release(m.modal);
     }
     async loadThread({more=false}={}){
-      const state=this.threadState;if(!state || state.loading)return;state.loading=true;state.loadingMore=more && Boolean(state.post);if(state.error)state.emptyPages=0;state.error=null;state.beforeCount=state.items.length;this.renderThread();
+      const state=this.threadState;if(!state || state.loading)return;
+      this.cancelAutoRetry(state);state.loading=true;state.loadingMore=more && Boolean(state.post);if(state.error)state.emptyPages=0;state.error=null;state.beforeCount=state.items.length;this.renderThread();
       const current=()=>this.threadState===state && this.mounted?.thread?.postId===state.route.postId;
       try{
         if(!state.post){
@@ -389,7 +392,7 @@
       if(state.nativeModulesError){const note=make('p','rt-sra-note',state.nativeModulesError+' '),retry=make('button','button button-small button-secondary','Retry Reddit components');retry.type='button';retry.addEventListener('click',()=>{state.nativeModulesError=null;this.renderThread();});note.append(retry);this.footEl.append(note);}
       // Reddit's page halo continues the top-level list; only nested reply controls use the small spinner.
       if(state.loading || this.io && !state.error && !state.stalled && (state.hiddenTop>0 || state.hasMore))this.footEl.append(this.loadingHalo('Loading archived comments'));
-      if(!state.error && !state.loading)state.autoRetries=0;if(state.error)this.footEl.append(this.errorNote(state,()=>this.loadThread({more:Boolean(state.post && state.cursor)})));
+      if(!state.error && !state.loading)state.autoRetries=0;if(state.error)this.footEl.append(this.errorNote(state,()=>this.threadState===state && JSON.stringify(threadRoute())===JSON.stringify(state.route),()=>this.loadThread({more:Boolean(state.post && state.cursor)})));
       if(!state.loading && !state.error){
         if(state.missing)this.footEl.append(make('p','rt-sra-note','This post is not in the archive. Coverage may be partial.'));
         else if(state.stalled)this.footEl.append(make('p','rt-sra-note','The archive stopped paging here; more comments may exist.'));
@@ -472,9 +475,21 @@
     // page (which drops this script's memory), so Back can rebuild the same position in a freshly loaded feed.
     saveFeedAnchor(){
       if(!this.listEl?.isConnected || !this.mounted || this.mounted.thread || this.restoringFeed)return;
-      let card=null;for(const node of this.listEl.querySelectorAll(':scope > .rt-native-card')){const r=node.getBoundingClientRect();if(r.bottom>80){card=node;break;}}
-      try{if(scrollY<=0 || !card){sessionStorage.removeItem(this.feedAnchorKey());return;}
-        const state=this.states.get(this.feedKey());sessionStorage.setItem(this.feedAnchorKey(),JSON.stringify({fullname:card.dataset.fullname,offset:Math.round(card.getBoundingClientRect().top),count:state?this.visibleItems(state).length:0,at:Date.now()}));}catch{}
+      const key=this.feedAnchorKey(),cards=this.listEl.children;
+      let card=null,offset=0;
+      // Archive cards are the feed's direct children in a single vertical column.
+      if(scrollY>0)for(let lo=0,hi=cards.length;lo<hi;){
+        const mid=Math.floor((lo+hi)/2),node=cards[mid],rect=node.getBoundingClientRect();
+        if(rect.bottom>80){card=node;offset=Math.round(rect.top);hi=mid;}else lo=mid+1;
+      }
+      const state=this.states.get(this.feedKey()),count=card && state?this.visibleItems(state).length:0;
+      const fullname=card?.dataset.fullname,prior=this.savedFeedAnchor;
+      if(prior?.key===key && prior.fullname===fullname && prior.offset===offset && prior.count===count && prior.y===scrollY)return;
+      try{
+        if(fullname)sessionStorage.setItem(key,JSON.stringify({fullname,offset,count,at:Date.now()}));
+        else sessionStorage.removeItem(key);
+        this.savedFeedAnchor={key,fullname,offset,count,y:scrollY};
+      }catch{}
     }
     restoreFeedAnchor(){
       let saved=null;try{saved=JSON.parse(sessionStorage.getItem(this.feedAnchorKey()) || 'null');}catch{}
@@ -1049,7 +1064,7 @@
     }
     unmountSearch(){
       const search=this.search;if(!search)return;this.search=null;
-      search.io?.disconnect();clearTimeout(search.settleTimer);for(const state of search.states?.values() || [])state.gen++;
+      search.io?.disconnect();clearTimeout(search.settleTimer);for(const state of search.states?.values() || [])this.cancelFill(state);
       search.host?.remove();search.sidebar?.remove();this.restoreSearchSort(search);
       for(const [group,original] of search.tabGroups || []){group.pageNames=original.names;group.pages=original.pages;group.pageIndex=original.index;}
       for(const [node,hidden] of search.hidden || []){node.hidden=hidden;node.removeAttribute(hiddenAttr);}
@@ -1178,12 +1193,22 @@
       }
       search.notice.textContent=notes.join(' · ');search.notice.hidden=false;search.notice.classList.toggle('rt-sra-error-text',Boolean(state.parsed?.invalid));
       // Media is Reddit's tile grid; posts and comments are rows separated by rules.
-      search.list.classList.toggle('rt-sra-media-grid',state.media);search.list.replaceChildren();
-      if(state.media)search.list.append(...items.map(item=>this.searchTile(state,item)));
-      else for(const [index,item] of items.entries()){if(index)search.list.append(make('hr','rt-sra-result-rule'));search.list.append(this.searchUnit(state,item));}
+      search.list.classList.toggle('rt-sra-media-grid',state.media);
+      if(search.renderedItems!==items || search.renderedCount!==items.length){
+        const nodes=[],rules=search.rules ||= new WeakMap();
+        for(const [index,item] of items.entries()){
+          const node=state.media?this.searchTile(state,item):this.searchUnit(state,item);
+          if(index && !state.media){
+            let rule=rules.get(node);if(!rule){rule=make('hr','rt-sra-result-rule');rules.set(node,rule);}
+            nodes.push(rule);
+          }
+          nodes.push(node);
+        }
+        this.syncNodes(search.list,nodes);search.renderedItems=items;search.renderedCount=items.length;
+      }
       const foot=search.foot;foot.replaceChildren();
       if(state.loading)foot.append(this.loadingHalo());
-      if(!state.error && !state.loading)state.autoRetries=0;if(state.error)foot.append(this.errorNote(state,()=>{if(!state.loading){state.error=null;this.fill(state,()=>this.renderSearch());}}));
+      if(!state.error && !state.loading)state.autoRetries=0;if(state.error)foot.append(this.errorNote(state,()=>this.search===search && JSON.stringify(searchRoute())===search.key,()=>{if(!state.loading)this.fill(state,()=>this.renderSearch());}));
       if(!state.loading && !state.error && !state.parsed?.invalid && state.started){
         const label=state.tab==='comments'?'comments':'posts';
         if(!items.length)foot.append(this.emptyState(route.q,state.hasMore?'No archived '+label+' matched yet.':'No archived '+label+' matched. The archive may not hold every record.'));
@@ -1325,7 +1350,11 @@
       }
       state.sortMode=this.sortMode();return state;
     }
-    retireFeedState(state){state.gen++;state.loading=false;for(const item of state.items || [])if(item?.kind!=='comment')(this.recentPosts ||= new Map()).set(item.fullname,item);}
+    cancelAutoRetry(state){clearTimeout(state.autoRetryTimer);state.autoRetryTimer=null;}
+    cancelFill(state){
+      state.gen++;state.loading=false;state.fillController?.abort();state.fillController=null;this.cancelAutoRetry(state);
+    }
+    retireFeedState(state){this.cancelFill(state);for(const item of state.items || [])if(item?.kind!=='comment')(this.recentPosts ||= new Map()).set(item.fullname,item);}
     activeFeed(state){return Boolean(this.mounted && !this.mounted.thread && this.states.get(this.feedKey())===state);}
     localFilter(){return (this.filterState().types || []).length>0 || Boolean(this.flairFilter) || Boolean(this.nsfwFilter);}
     refresh(){if(!this.mounted)return;const state=this.current();this.renderList();if(!state.started)this.fillFeed(state);}
@@ -1359,31 +1388,50 @@
       if(this.localFilter())return this.fillFeed(state);
     }
     visibleItems(state){
-      const f=globalThis.RTFeedFilters,filters=state.scope==='feed'?this.filterState():null;
-      let items=state.items;
-      if(state.media)items=items.filter(item=>mediaTypes.includes(f?f.inferType(item):''));
-      if(filters && f){const test=f.predicate({...f.clone(filters),subreddits:[]});items=items.filter(item=>test({created:item.created,kind:item.kind,subreddit:item.subreddit,postType:item.kind==='comment'?'':f.inferType(item)}));}
-      if(state.flair){const want=state.flair.toLowerCase();items=items.filter(item=>String(item.flair ?? item.link_flair_text ?? '').trim().toLowerCase()===want);}
-      if(state.nsfw==='only')items=items.filter(item=>Boolean(item.over18 ?? item.over_18 ?? item.nsfw));
-      else if(state.nsfw==='hide')items=items.filter(item=>!Boolean(item.over18 ?? item.over_18 ?? item.nsfw));
-      const by=state.sortMode==='top'?(a,b)=>(b.score||0)-(a.score||0) || b.created-a.created:state.sortMode==='comments'?(a,b)=>(b.comments||0)-(a.comments||0) || b.created-a.created:null;
-      if(!by)return items;
-      // Ranked among loaded posts: a later page must not reshuffle, or push out, what is already shown. The shown range
-      // keeps its order; only what comes after it is ranked again.
+      const f=globalThis.RTFeedFilters,filters=state.scope==='feed'?this.filterState():null,now=Date.now()/1000;
       const key=JSON.stringify([state.sortMode,state.media,state.flair,state.nsfw,filters]);
-      const sorted=[...items].sort(by),present=new Map(sorted.map(item=>[item.fullname,item]));
-      const head=(state.rankKey===key?state.rankShown || []:[]).map(id=>present.get(id)).filter(Boolean),kept=new Set(head);
-      items=head.concat(sorted.filter(item=>!kept.has(item)));
-      state.rankKey=key;state.rankShown=items.slice(0,Math.max(head.length,state.want || 0)).map(item=>item.fullname);
+      const range=filters && f?.dateRange(filters,now),after=range?.after,before=range?.before;
+      const memo=state.visibleMemo;
+      const by=state.sortMode==='top'?(a,b)=>(b.score||0)-(a.score||0) || b.created-a.created:state.sortMode==='comments'?(a,b)=>(b.comments||0)-(a.comments||0) || b.created-a.created:null;
+      let items;
+      if(memo?.input===state.items && memo.length===state.items.length && memo.filterModel===f && memo.key===key && memo.before===before &&
+          (memo.after===after || filters?.date?.preset && after>=memo.after && after<=memo.oldest)){
+        items=memo.items;
+      }else{
+        items=state.items;
+        if(state.media)items=items.filter(item=>mediaTypes.includes(f?f.inferType(item):''));
+        if(f && filters && (filters.date || filters.types.length)){
+          const typed=filters.types.length>0,test=f.predicate({...f.clone(filters),subreddits:[]},now);
+          items=items.filter(item=>test({created:item.created,kind:item.kind,subreddit:item.subreddit,postType:typed && item.kind!=='comment'?f.inferType(item):''}));
+        }
+        if(state.flair){const want=state.flair.toLowerCase();items=items.filter(item=>String(item.flair ?? item.link_flair_text ?? '').trim().toLowerCase()===want);}
+        if(state.nsfw==='only')items=items.filter(item=>Boolean(item.over18 ?? item.over_18 ?? item.nsfw));
+        else if(state.nsfw==='hide')items=items.filter(item=>!Boolean(item.over18 ?? item.over_18 ?? item.nsfw));
+        if(by){
+          // Newly loaded pages can rank among the unseen items but never move the already shown prefix.
+          const present=new Map(items.map(item=>[item.fullname,item]));
+          const head=(state.rankKey===key?state.rankShown:[]).map(id=>present.get(id)).filter(Boolean),kept=new Set(head);
+          items=head.concat(items.filter(item=>!kept.has(item)).sort(by));
+          state.rankKey=key;state.rankShown=head.map(item=>item.fullname);
+        }
+        let oldest=Infinity;
+        if(filters?.date?.preset)for(const item of items)oldest=Math.min(oldest,Number(item.created));
+        state.visibleMemo={input:state.items,length:state.items.length,key,filterModel:f,after,before,oldest,items};
+      }
+      if(by){
+        const end=Math.min(items.length,state.want || 0);
+        for(let index=state.rankShown.length;index<end;index++)state.rankShown.push(items[index].fullname);
+      }
       return items;
     }
     async fill(state,render){
       if(state.parsed?.invalid)return;
       const Q=globalThis.RTArchiveQuery;if(!Q?.search){state.error={message:'Archive search is unavailable.'};state.started=true;render();return;}
-      state.started=true;state.loading=true;state.error=null;const gen=state.gen;render();
+      this.cancelAutoRetry(state);state.started=true;state.loading=true;state.error=null;
+      const gen=state.gen,controller=state.fillController=new AbortController();render();
       const before=this.visibleItems(state).length,name=state.name.toLowerCase(),searching=state.scope==='search',startedAt=Date.now();let shownSoFar=before;
       try{
-        const options={kind:state.tab==='comments'?'comment':'post',subreddit:name,sort:state.asc?'asc':'desc',cursor:state.cursor ?? undefined,after:state.range?.after ?? undefined,before:state.range?.before ?? undefined,maxPages:searching?SEARCH_PAGES:5};
+        const options={kind:state.tab==='comments'?'comment':'post',subreddit:name,sort:state.asc?'asc':'desc',cursor:state.cursor ?? undefined,after:state.range?.after ?? undefined,before:state.range?.before ?? undefined,maxPages:searching?SEARCH_PAGES:5,signal:controller.signal};
         if(state.flair)options.flair=state.flair;
         if(state.nsfw==='only')options.over18=true;
         else if(state.nsfw==='hide')options.over18=false;
@@ -1412,6 +1460,7 @@
           if(shown>shownSoFar){shownSoFar=shown;render();}
         }
       }catch(error){if(gen!==state.gen)return;state.error={message:error?.message || 'The archive is unavailable.',code:error?.code,retryAt:error?.retryAt};}
+      finally{if(state.fillController===controller)state.fillController=null;}
       if(gen!==state.gen)return;
       state.loading=false;render();
       // The sentinel may still be on screen: look again so a short page does not stall paging.
@@ -1461,19 +1510,28 @@
     }
     // Temporary archive failures (timeouts, rate limits, maintenance) retry by themselves a few times with
     // growing waits (or the server's requested wait) before the reader is asked to press Retry.
-    errorNote(state,retry){
+    errorNote(state,isCurrent,retry){
       const error=state.error,message=String(error?.message || 'The archive is unavailable.'),missing=/not in the archive|not found|isn't available/i.test(message);
       const note=make('div','rt-sra-error text-12 text-neutral-content-weak');note.setAttribute('role','status');
       if(!missing && (state.autoRetries || 0)<this.autoRetries){
         if(state.autoRetryFor!==error){
-          state.autoRetryFor=error;const attempt=state.autoRetries || 0,wait=Math.max(this.autoRetryWaits[attempt] ?? 0,error?.retryAt?error.retryAt-Date.now():0);
-          clearTimeout(state.autoRetryTimer);state.autoRetryTimer=setTimeout(()=>{if(state.error!==error)return;state.autoRetries=attempt+1;retry();},wait);
+          this.cancelAutoRetry(state);state.autoRetryFor=error;
+          state.autoRetryAt=Math.max(Date.now()+(this.autoRetryWaits[state.autoRetries || 0] ?? 0),error?.retryAt || 0);
+        }
+        if(state.autoRetryTimer==null){
+          const generation=state.gen;const timer=setTimeout(()=>{
+            if(state.autoRetryTimer!==timer)return;
+            state.autoRetryTimer=null;
+            if(!isCurrent() || state.error!==error || state.gen!==generation)return;
+            state.autoRetries=(state.autoRetries || 0)+1;retry();
+          },Math.max(0,state.autoRetryAt-Date.now()));
+          state.autoRetryTimer=timer;
         }
         note.append(this.spinner(),make('span','','The archive is slow to respond · Retrying automatically…'));return note;
       }
       note.append(make('span','',message));
       if(error?.retryAt){const wait=Math.max(0,Math.ceil((error.retryAt-Date.now())/1000));if(wait>0)note.append(make('span','',' Try again in about '+wait+' s.'));}
-      const button=make('button','button button-small button-secondary rt-sra-retry','Retry');button.type='button';button.dataset.rtRetry='true';button.addEventListener('click',()=>{state.autoRetries=0;retry();});note.append(button);return note;
+      const button=make('button','button button-small button-secondary rt-sra-retry','Retry');button.type='button';button.dataset.rtRetry='true';button.addEventListener('click',()=>{if(isCurrent()){state.autoRetries=0;retry();}});note.append(button);return note;
     }
     renderList(){
       if(!this.mounted)return;const state=this.current(),items=this.visibleItems(state),shown=items.slice(0,state.want);
@@ -1487,7 +1545,8 @@
       const scanning=state.loading && !shown.length && this.localFilter();
       if(state.loading || this.io && more && idle)foot.append(this.loadingHalo(scanning?'Searching the archive for matching posts':'Loading archived posts'));
       if(scanning)foot.append(make('p','rt-sra-note rt-sra-scan-note text-12 text-neutral-content-weak','Searching older archived posts for matches…'));
-      if(!state.error && !state.loading)state.autoRetries=0;if(state.error)foot.append(this.errorNote(state,()=>this.retry()));
+      if(!state.error && !state.loading)state.autoRetries=0;if(state.error)foot.append(this.errorNote(state,()=>this.activeFeed(state) &&
+        location.pathname.replace(/\/+$/,'').toLowerCase()==='/r/'+this.mounted.name.toLowerCase() && (this.automatic || viewRequested()),()=>this.retry()));
       if(idle){
         if(!items.length){if(!state.hasMore || state.paused)foot.append(this.feedEmpty(state));else foot.append(make('p','rt-archive-empty text-14 text-neutral-content-weak','No archived posts loaded yet for these settings.'));}
         if(state.stalled)foot.append(make('p','rt-sra-note text-12 text-neutral-content-weak','The archive stopped paging here; older records may exist.'));
@@ -1502,7 +1561,9 @@
     // Reconcile in place: cards that stay keep their identity and position (Reddit's components are not
     // disconnected and reconnected on every render), stale ones leave, and none is ever listed twice.
     syncList(state,items){
-      const list=this.listEl,nodes=items.map(item=>this.cardFor(state,item));
+      this.syncNodes(this.listEl,items.map(item=>this.cardFor(state,item)));
+    }
+    syncNodes(list,nodes){
       for(const [index,node] of nodes.entries()){const at=list.children[index];if(at!==node)list.insertBefore(node,at || null);}
       while(list.children.length>nodes.length)list.lastElementChild.remove();
     }
