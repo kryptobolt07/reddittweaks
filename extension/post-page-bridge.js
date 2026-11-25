@@ -802,6 +802,27 @@
     }
   })();
   document.addEventListener('rt-release-feed-video',releaseVideo);
+  // Reddit's volume sync (syncVolumeToActivePlayers) applies the reader's saved Reddit volume, often unmuted, to
+  // every active player as the feed scrolls: measured on native Reddit too, 2026-11-25. On a muted preview that is an
+  // unmute before any tap, which the browser refuses by pausing the video (previews that never start until something
+  // was played by hand), or, after a tap, sound until the extension mutes it again. While a preview or automatic loop
+  // uses a player, its forceMuted keeps it out of that sync; it is handed back when the preview ends or the reader
+  // touches that player.
+  const heldMuted=new WeakSet();
+  function holdMuted(player){
+    if(player.forceMuted || heldMuted.has(player))return;
+    try{player.forceMuted=true;heldMuted.add(player);}catch{}
+  }
+  function releaseMuted(player){
+    if(!heldMuted.delete(player))return;
+    try{player.forceMuted=false;}catch{}
+  }
+  document.addEventListener('rt-release-feed-preview',event=>{if(event.target?.matches?.(videoPlayers))releaseMuted(event.target);});
+  document.addEventListener('pointerdown',event=>{
+    if(!event.isTrusted)return;
+    const player=event.composedPath().find(node=>node?.matches?.(videoPlayers));
+    if(player)releaseMuted(player);
+  },true);
   document.addEventListener('rt-prepare-feed-preview',event=>{
     const player=event.target;
     if(!player.matches?.(videoPlayers))return;
@@ -811,6 +832,7 @@
       player.getAttribute('player-type')==='search_results' && Boolean(player.closest('[data-id="search-media-post-unit"]'));
     if(!allowed)return;
     player.mediaSyncController?.muteForAutoplayRetry?.();
+    holdMuted(player);
     if(player.shadowRoot?.querySelector('video')?.readyState===0)player.load?.('metadata')?.catch?.(()=>{});
   });
   // A lazy native player needs Reddit's own media loader before its <video> has metadata.

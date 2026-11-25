@@ -1545,3 +1545,16 @@ test('infoStatuses and awaitingStatus remember 403/410 refusals and skip repeate
  await e2.send({action:'status',username:'Example',kind:'post',ids:['two']});
  assert.equal(e2.calls.filter(([u])=>new URL(u).pathname==='/api/info.json').length,1,'infoStatuses suppresses fast path after 410');
 });
+test('a preview holds Reddit’s player muted (out of its volume sync) and hands it back; Reddit’s own force-muted stays',t=>{
+ const {W}=setup(t,{url:'https://www.reddit.com/r/example/'});
+ const d=W.document,make=(id,forced=false)=>{const post=d.createElement('shreddit-post');post.id='t3_'+id;const player=post.appendChild(d.createElement('shreddit-player'));player.setAttribute('player-type','in_feed_player');player.setAttribute('post-id','t3_'+id);player.forceMuted=forced;player.attachShadow({mode:'open'}).append(d.createElement('video'));d.body.append(post);return player;};
+ const a=make('aaa1'),b=make('bbb2',true);
+ for(const player of [a,b])player.dispatchEvent(new W.Event('rt-prepare-feed-preview',{bubbles:true}));
+ assert.equal(a.forceMuted,true,'held while previewing');assert.equal(b.forceMuted,true);
+ for(const player of [a,b])player.dispatchEvent(new W.Event('rt-release-feed-preview',{bubbles:true}));
+ assert.equal(a.forceMuted,false,'handed back');assert.equal(b.forceMuted,true,'Reddit’s own setting is left alone');
+ // Untrusted presses (tests, pages) don't release it; only the reader's own does.
+ a.dispatchEvent(new W.Event('rt-prepare-feed-preview',{bubbles:true}));
+ a.dispatchEvent(new W.MouseEvent('pointerdown',{bubbles:true,composed:true}));
+ assert.equal(a.forceMuted,true);
+});

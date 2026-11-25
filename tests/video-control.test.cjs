@@ -2253,3 +2253,12 @@ test('Media search tab on touch: press and hold plays a clip while held, lifting
  const click=new p.W.MouseEvent('click',{bubbles:true,cancelable:true,composed:true,button:0});p.video.dispatchEvent(click);
  assert.equal(click.defaultPrevented,true,'the click that ends a hold is swallowed');
 });
+test('a preview that ends, or that the reader takes over, hands Reddit’s player its own mute state back',async t=>{
+ const p=page(t);searchTile(p);phone(p);
+ const controller=await hoverController(p,{videoStart:'preview'});
+ const events=[];for(const type of ['rt-prepare-feed-preview','rt-release-feed-preview'])p.player.addEventListener(type,()=>events.push(type));
+ scroll(p);await settle();
+ assert.equal(p.video.paused,false);
+ controller.stopHover();
+ assert.deepEqual(events,['rt-prepare-feed-preview','rt-release-feed-preview']);
+});

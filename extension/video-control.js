@@ -1036,9 +1036,12 @@
   playLoop(player,video){
    if(!closedThread(player) && video.paused)this.play(player,video)?.catch?.(()=>{if(this.loops.get(player)===video)this.stopLoop(player);});
   }
+  // Previews and automatic loops hold Reddit's player muted (page bridge, rt-prepare-feed-preview); this hands it back.
+  releaseMuted(player){player?.dispatchEvent?.(new this.win.Event('rt-release-feed-preview',{bubbles:true}));}
   stopLoop(player){
    const video=this.loops.get(player);
    this.loops.delete(player);
+   if(video)this.releaseMuted(player);
    if(video && !video.paused)video.pause();
   }
   // Playback goes through Reddit's own player (page bridge) so its controls show the playing state; a direct
@@ -1088,6 +1091,7 @@
    if(!preview?.active)return;
    preview.active=false;
    preview.video.pause();
+   this.releaseMuted(player);
    preview.video.muted=preview.muted;
    if(!preview.played)this.previews.delete(player);
   }
@@ -1962,6 +1966,7 @@
    const video=preview.video;
    this.previews.delete(player);
    this.started.add(video);
+   this.releaseMuted(player);
    if(this.hovered===player)this.stopHover();
    if(action==='control')return;
    const unmute=wantSound!==null?wantSound:(action==='here' || action==='open' && this.unmutePreview);
