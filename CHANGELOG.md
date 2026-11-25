@@ -1,10 +1,12 @@
 # 0.67.1 preview
 
-- **Chat:** release detached chat interface elements and Matrix listeners, reduce work on native thread updates, and grant one background history lease per account across tabs.
+- **Chat search memory & speed:** cache the chat directory in memory inside the background worker, skip full-account sender merging on plain and `from:me`/`from:them` searches, bound top-K selection for common terms instead of sorting every match, skip unnecessary full-index re-sorts on non-date queries, avoid re-scanning all rooms on unchanged steady-state Matrix sync heartbeats, eliminate giant joined row-stamp allocations in `setItems()`, and defer hidden chat-preview reloads while searching Messages.
+- **Certified result ordering & loading UX:** while scanning older messages newest-first, only display matches strictly newer than the scanned watermark so results from other chats are never inserted between already-displayed rows; show an aligned native shimmer loading footer at the bottom of results while older messages or pages are loading; and simplify the search status bar so it never shows `0 of 0 chats` or conflicting chat counts.
+- **Chat lifecycle:** release detached chat interface elements and Matrix listeners, reduce work on native thread updates, and grant one background history lease per account across tabs.
 - **Large conversations:** read saved messages in bounded batches, release durable-only records when the room search closes, and score each relevance match once. An open search can still hold a whole room's searchable records. Verified history and recovery also depend on native raw events.
 - **Archives and profiles:** retired archive views stop retrying, paging keeps focus on existing results, and scrolling and profile reconciliation use fewer DOM searches while preserving reading position.
 - **Media and history:** cap video poster misses and keep the Visual Search timeout active through response reads. Reduce repeated work in Viewed History, community icon lookups, archive memo reads, and settings updates.
-- **Patch increment:** performance and reliability improvements to existing features. Browser coverage uses synthetic fixtures at desktop and phone widths. Signed-in Reddit timing and heap usage require separate measurement.
+- **Patch increment:** performance, memory, and reliability improvements to existing features, verified with 2,471 unit/fixture tests and live signed-in Chrome CDP profiling on a 33,355-message / 1,854-chat account (flat ~570–625 MB tab RSS and ~11–22 MB worker heap under 45s max stress). Note: strict no-insertion ordering applies to **Newest** sort; **Oldest** and **Relevant** sorts still require scanning full history because any unscanned chat can contain an older or higher-scoring match.
 
 # 0.67.0 preview
 
