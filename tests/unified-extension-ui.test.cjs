@@ -594,11 +594,28 @@ test('native responsive metrics update both result kinds and invalidate only cha
 });
 
 
-test('late fonts and root theme changes refresh native row metrics without starting searches',async t=>{
+test('late fonts and root theme changes re-read native row metrics, and only a size change discards measured heights',async t=>{
   const p=await setup(t,{scope:'people',nativeFonts:true}),c=p.control;await p.search('alex');const requests=p.requests.length,searches=p.searches.length;
-  c.messageHeights.set('old-font',88);p.w.document.fonts.dispatchEvent(new p.w.Event('loadingdone'));await settle();assert.equal(c.messageHeights.size,0);
-  c.messageHeights.set('old-theme',88);p.w.document.body.classList.add('synthetic-theme');await settle();assert.equal(c.messageHeights.size,0);
+  let metrics={'--rcs-row-title-font':'400 14px/20px TestSans','--rcs-row-title-color':'rgb(0, 0, 0)','--rcs-row-min-height':'60px'};
+  c.adapter={...c.adapter,chatListMetrics:()=>metrics};c.updateLayout(true);
+  // Opening a room loads fonts: with Reddit's styling unchanged, the measured heights stay (they used to be wiped).
+  c.messageHeights.set('old-font',88);p.w.document.fonts.dispatchEvent(new p.w.Event('loadingdone'));await settle();assert.equal(c.messageHeights.size,1,'unchanged styling keeps heights');
+  metrics={...metrics,'--rcs-row-title-color':'rgb(40, 40, 40)'};p.w.document.body.classList.add('synthetic-theme');await settle();
+  assert.equal(c.messageHeights.size,1,'a colour change keeps heights');assert.equal(c.host.style.getPropertyValue('--rcs-row-title-color'),'rgb(40, 40, 40)','but is applied');
+  metrics={...metrics,'--rcs-row-title-font':'400 18px/24px TestSans'};p.w.document.fonts.dispatchEvent(new p.w.Event('loadingdone'));await settle();assert.equal(c.messageHeights.size,0,'a size change discards them');
   assert.equal(p.requests.length,requests);assert.equal(p.searches.length,searches);assert.equal(c.input.value,'alex');
+});
+
+test('discarded row heights keep the result on screen where it was',async t=>{
+  const p=await setup(t,{large:true}),c=p.control;await p.search('coffee');
+  assert.ok(c.items.length>=8,'enough rows to scroll: '+c.items.length);
+  let metrics={'--rcs-row-title-font':'400 14px/20px TestSans','--rcs-row-min-height':'60px'};c.adapter={...c.adapter,chatListMetrics:()=>metrics};c.updateLayout(true);
+  // Rows above the target were measured taller than their estimates; clearing that makes them shorter again.
+  const key=c.items[Math.floor(c.items.length/2)].key;for(const item of c.items.slice(0,Math.floor(c.items.length/2)))if(item.kind==='message')c.messageHeights.set(item.renderKey,item.height+120);
+  c.itemsStamp='';c.makeItems();const target=c.items.find(item=>item.key===key);c.renderWindow(false,target.offset+5);
+  const before=c.captureViewport();
+  metrics={...metrics,'--rcs-row-min-height':'72px'};c.updateLayout(true);
+  const after=c.captureViewport();assert.equal(after.key,before.key,'same row at the top');assert.equal(after.within,before.within,'at the same offset');
 });
 
 
