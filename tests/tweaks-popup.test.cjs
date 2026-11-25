@@ -399,23 +399,23 @@ test('Home: Raffles explains where to find them and can be turned on in place',a
 
 test('accurate counters: active booleans + overridden selectors, excluding historyLimit, clickAudio, actions, and hidden device cards',async t=>{
   const p=popup(t,{tabs:redditTab,touch:false});await settle();const doc=p.w.document;
-  assert.equal(doc.getElementById('feature-summary').textContent,'8 of 41 active','desktop fresh count excludes Mobile Web card, includes blockedProfiles and chatSearch');
+  assert.equal(doc.getElementById('feature-summary').textContent,'9 of 43 active','desktop fresh count excludes Mobile Web card, includes blockedProfiles and chatSearch');
   doc.getElementById('manage-features').click();assert.equal(doc.getElementById('panel-settings').hidden,false);
   const count=id=>doc.querySelector('[aria-labelledby="'+id+'"] .group-count').textContent;
-  assert.equal(count('browsing-heading'),'3 of 5 on');
+  assert.equal(count('browsing-heading'),'4 of 6 on');
   assert.equal(count('comments-heading'),'0 of 7 on');
   assert.equal(count('performance-heading'),'1 of 2 on');
   assert.equal(count('videos-heading'),'Default');
   assert.equal(count('tools-heading'),'3 of 3 on');
   assert.equal(count('removal-settings-heading'),'0 of 2 on');
   assert.equal(count('archive-heading'),'0 of 4 on');
-  assert.equal(count('visual-search-heading'),'0 of 4 on');
+  assert.equal(count('visual-search-heading'),'0 of 5 on');
 
   // Numeric History length dropdown does NOT change Browsing & Feed or Home counts.
   doc.getElementById('history-limit').click();
   doc.querySelector('#history-limit-menu [data-value="500"]').click();await settle();
-  assert.equal(count('browsing-heading'),'3 of 5 on');
-  assert.equal(doc.getElementById('feature-summary').textContent,'8 of 41 active');
+  assert.equal(count('browsing-heading'),'4 of 6 on');
+  assert.equal(doc.getElementById('feature-summary').textContent,'9 of 43 active');
 
   // Overriding mediaClickAction counts (+1) and reveals clickAudio; changing clickAudio does NOT add to counts.
   const clickAudioRow=doc.getElementById('click-audio').closest('.setting-row');
@@ -424,7 +424,7 @@ test('accurate counters: active booleans + overridden selectors, excluding histo
   doc.querySelector('#media-click-action-menu [data-value="inline"]').click();await settle();
   assert.equal(clickAudioRow.hidden,false);
   assert.equal(count('videos-heading'),'1 of 13 active');
-  assert.equal(doc.getElementById('feature-summary').textContent,'9 of 41 active');
+  assert.equal(doc.getElementById('feature-summary').textContent,'10 of 43 active');
   assert.equal(doc.getElementById('reset-video-defaults').hidden,false);
   doc.getElementById('click-audio').click();
   doc.querySelector('#click-audio-menu [data-value="unmute"]').click();await settle();
@@ -449,11 +449,11 @@ test('accurate counters: active booleans + overridden selectors, excluding histo
   // Enabling Archive turns on Archive + already-checked restoreDeletedContent (+2).
   const archive=doc.getElementById('archive-discovery');archive.checked=true;archive.dispatchEvent(new p.w.Event('change',{bubbles:true}));await settle();
   assert.equal(count('archive-heading'),'2 of 4 on');
-  assert.equal(doc.getElementById('feature-summary').textContent,'11 of 41 active');
+  assert.equal(doc.getElementById('feature-summary').textContent,'12 of 43 active');
 
   // Touch device counts Mobile Web card (+1 of +8: two switches and six navigation bar choices at their defaults).
   const mob=popup(t,{tabs:redditTab,touch:true});await settle();
-  assert.equal(mob.w.document.getElementById('feature-summary').textContent,'9 of 49 active');
+  assert.equal(mob.w.document.getElementById('feature-summary').textContent,'10 of 51 active');
   assert.equal(mob.w.document.querySelector('[aria-labelledby="mobile-heading"] .group-count').textContent,'1 of 8 on');
 });
 
@@ -467,7 +467,7 @@ test('View profiles that blocked you defaults on, nests under postDiscovery, and
   assert.equal(row.hidden,false);
   blocked.click();await settle();
   assert.equal(p.state['rt-settings-v1'].blockedProfiles,false);
-  assert.equal(doc.querySelector('[aria-labelledby="browsing-heading"] .group-count').textContent,'2 of 5 on');
+  assert.equal(doc.querySelector('[aria-labelledby="browsing-heading"] .group-count').textContent,'3 of 6 on');
   blocked.click();await settle();
   assert.equal(p.state['rt-settings-v1'].blockedProfiles,true);
   post.click();await settle();
@@ -639,7 +639,7 @@ test('Visual Search defaults off, asks for infini.wtf access when turned on, and
   assert.equal(p.state['rt-settings-v1'].visualSearch,true);
   assert.equal(postMenuRow.hidden,false);
   assert.equal(clickRow.hidden,false);
-  assert.equal(doc.querySelector('[aria-labelledby="visual-search-heading"] .group-count').textContent,'2 of 4 on');
+  assert.equal(doc.querySelector('[aria-labelledby="visual-search-heading"] .group-count').textContent,'2 of 5 on');
 
   toggle.checked=false;toggle.dispatchEvent(new p.w.Event('change',{bubbles:true}));await settle();
   assert.equal(permRequests,1,'turning it off asks nothing');

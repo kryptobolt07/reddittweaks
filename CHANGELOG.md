@@ -9,7 +9,8 @@
 - **Visual tab:** one image-search lens (the one in the search bar), and a clearer message while infini.wtf analyses a new picture.
 - **Firefox:** profiles no longer show "Public comments" network errors or the "blocking logged-out search" note. Firefox still tries the signed-out comment search, but a refusal is quiet (Chrome's fallback for it, a credentialless frame, doesn't exist in Firefox).
 - **Previews and sound:** Reddit re-applies your saved Reddit volume to playing feed videos as you scroll. That unmuted previews, so the browser paused them before your first tap and you heard them after it. Previews now keep Reddit's player muted until they end or you take over. Previews refused by the browser also start on your next tap.
-- **Lens on embeds:** every embedded video gets the lens, including ones whose player hasn't drawn yet (YouTube's still is taken from the video's address).
+- **Lens on embeds:** every embedded video gets the lens and the ⋯ *Find visually similar* item, from any provider. YouTube's still is taken from the video's address; other providers use Reddit's own copy of the post's still.
+- **New options:** *Signed-out comment search* (under Profile search, on by default) turns off the signed-out search for comments Reddit leaves out of profiles. *NSFW results by default* (Visual search, off by default) starts the Visual tab with NSFW included.
 - Not verified: press and hold on a real touch screen, Firefox, and why the Visual tab sometimes stays grey beyond infini.wtf's slow analysis.
 
 # 0.66.0 preview

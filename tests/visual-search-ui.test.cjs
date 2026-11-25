@@ -1162,3 +1162,59 @@ test('Reddit’s Media tab: a full-screen button opens the viewer with Reddit’
   assert.equal(handed.id, 'vid111');
   assert.match(navigated, /\/r\/pics\/comments\/vid111\/t\/$/);
 });
+
+test('NSFW results by default: the Visual tab follows the reader’s choice, and a search can still switch it off', async t => {
+  const { W, controller, sent } = setupUi(t, { settings: { visualSearch: true, visualNsfw: true } });
+  await controller.ready;
+  await flush();
+  const Model = W.RTVisualSearchModel;
+  assert.equal(Model.parseVisualUrl(W.location.href).filters.nsfw, true, 'no rt_vnsfw: the default applies');
+  assert.equal(sent.find(m => m.action === 'query').filters.nsfw, true, 'the first search already includes NSFW');
+  const off = Model.buildVisualUrl(W.location.href, { q: 'ice cream', filters: { nsfw: false } });
+  assert.equal(off.searchParams.get('rt_vnsfw'), '0', 'switching it off is written down');
+  assert.equal(Model.parseVisualUrl(off.href).filters.nsfw, false);
+  assert.equal(Model.buildVisualUrl(W.location.href, { q: 'ice cream', filters: { nsfw: true } }).searchParams.has('rt_vnsfw'), false, 'the default needs no parameter');
+  controller.applySettings({ visualSearch: true, visualNsfw: false });
+  assert.equal(Model.parseVisualUrl('https://www.reddit.com/search/?q=a&type=media&rt_visual=1').filters.nsfw, false);
+});
+
+test('embedded media with no still on the page: the lens is there, and the Visual tab reads the still from the post’s data', async t => {
+  const html = `<!doctype html><html><body><main>
+    <shreddit-post id="t3_gif111" post-type="link" permalink="/r/clips/comments/gif111/clip/" post-title="Clip"><shreddit-post-overflow-menu></shreddit-post-overflow-menu><div slot="post-media-container"><div style="position:relative"><shreddit-embed providername="Clips" html="&lt;iframe src=&quot;https://clips.example/ifr/abc&quot;&gt;&lt;/iframe&gt;"></shreddit-embed></div></div></shreddit-post>
+  </main></body></html>`;
+  const feed = setupUi(t, { url: 'https://www.reddit.com/r/clips/', html, settings: { visualSearch: true, visualSearchMediaButton: true, visualSearchPostMenu: true } });
+  await feed.controller.ready;
+  feed.controller.sync();
+  const lens = feed.D.querySelector('[data-rt-ui="visual-media-lens"]');
+  assert.ok(lens, 'an embed gets the lens without a still');
+  assert.ok(feed.D.querySelector('[data-rt-visual-menu="item"]'), 'and the ⋯ menu item');
+  feed.D.addEventListener('click', e => { if (e.target.closest?.('a[data-rt-ui="visual-nav-link"]')) e.preventDefault(); });
+  lens.click();
+  const seed = JSON.parse(feed.W.sessionStorage.getItem('rt-visual-seed:clips/gif111'));
+  assert.equal(seed.fallbackImageUrl, '');
+
+  const uploads = [], fetched = [];
+  const vis = setupUi(t, {
+    url: 'https://www.reddit.com/search/?type=media&rt_visual=1&rt_vpost=clips/gif111',
+    sendImpl: async msg => {
+      if (msg.action === 'resolve-post') return { ok: true, indexed: false };
+      if (msg.action === 'upload-image') { uploads.push(msg); return { ok: false, error: 'stop here' }; }
+      return { ok: true, items: [] };
+    }
+  });
+  vis.W.sessionStorage.setItem('rt-visual-seed:clips/gif111', JSON.stringify(seed));
+  vis.W.fetch = async url => {
+    fetched.push(String(url));
+    if (/\/comments\/gif111\.json/.test(url)) return { ok: true, json: async () => [{ data: { children: [{ data: { preview: { images: [{ source: { url: 'https://external-preview.redd.it/still.jpg?s=1' }, resolutions: [] }] } } }] } }] };
+    if (/external-preview/.test(url)) return { ok: true, blob: async () => new vis.W.Blob(['x'], { type: 'image/jpeg' }) };
+    return { ok: false };
+  };
+  vis.controller.prepareImage = async () => ({ dataBase64: 'AAAA', mimeType: 'image/webp', previewUrl: 'blob:x' });
+  vis.W.URL.revokeObjectURL = () => {};
+  vis.W.URL.createObjectURL = () => 'blob:x';
+  await vis.controller.ready;
+  for (let i = 0; i < 4; i++) await flush();
+  assert.ok(fetched.some(u => /\/comments\/gif111\.json/.test(u)), 'the post’s own data was read');
+  assert.equal(JSON.parse(vis.W.sessionStorage.getItem('rt-visual-seed:clips/gif111')).fallbackImageUrl, 'https://external-preview.redd.it/still.jpg?s=1');
+  assert.equal(uploads.length, 1, 'and its still searched');
+});

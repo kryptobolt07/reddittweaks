@@ -19,3 +19,5 @@ Follow-up: all 13 advisory dynamic-innerHTML sites were removed via tested safe 
 Profiles merge a cookie-free Reddit comment search ("public" stream) so comments Reddit hides from the signed-in profile view still appear. Reddit often refuses a cookie-free request: HTTP 403, or a redirect that a `redirect: 'error'` fetch reports as a network error. Chrome then reads the same search inside a `credentialless` iframe, a Chromium-only feature that gives a temporary signed-out Reddit session without touching the reader's cookies. Firefox has no equivalent, so a refusal there used to show "Public comments: …" network errors or "Reddit is blocking logged-out search" on every profile load.
 
 Firefox (detected by `browser.runtime.getBrowserInfo`) still tries the plain request; when Reddit refuses, it is quiet (no error, no note) and not tried again for 10 minutes. Not verified in Firefox.
+
+The stream also has its own popup switch, **Signed-out comment search** (under Profile search, on by default), in every browser.

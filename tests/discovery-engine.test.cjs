@@ -191,3 +191,13 @@ test('an orphaned content script cleans up and stops',async t=>{
   d.scan();W.document.body.append(W.document.createElement('div'));await sleep(100);assert.equal(d.host,null,'and nothing mounts again');
   d.onSettings({'rt-settings-v1':{newValue:{postDiscovery:true,archiveDiscovery:true}}},'local');assert.equal(d.host,null);
 });
+
+test('Signed-out comment search: on by default for a comments feed, and its toggle turns the signed-out stream off',async t=>{
+  for(const [settings,expected] of [[{postDiscovery:true},true],[{postDiscovery:true,signedOutSearch:false},false]]){
+    const {d,calls}=setup(t,{url:'https://www.reddit.com/user/Example/comments/',settings});await d.ready;
+    await d.loadReddit();for(let i=0;i<6;i++)await tick();
+    const comments=calls.filter(c=>c.action==='profile' && c.kind==='comment');
+    assert.equal(comments.some(c=>c.stream==='public'),expected,JSON.stringify(settings));
+    assert.equal(comments.some(c=>c.stream==='authenticated'),true,'the signed-in stream always runs');
+  }
+});

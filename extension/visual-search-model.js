@@ -604,6 +604,11 @@
     return null;
   }
 
+  // The reader's default for NSFW results (popup: Visual search › NSFW results). A Visual URL names NSFW only when it
+  // differs from that default (rt_vnsfw=1 or rt_vnsfw=0), so every entry point follows it.
+  let nsfwDefault = false;
+  function setNsfwDefault(value) { nsfwDefault = value === true; }
+
   function parseVisualUrl(urlLike = globalThis.location?.href) {
     let url;
     try { url = urlLike instanceof URL ? urlLike : new URL(String(urlLike || ''), 'https://www.reddit.com'); }
@@ -621,7 +626,7 @@
     const vscope = ['sub', 'user', 'all'].includes(params.get('rt_vscope')) ? params.get('rt_vscope') : '';
     const vpopular = params.get('rt_vpopular') === '1';
     const filters = normalizeFilters({
-      nsfw: params.get('rt_vnsfw') === '1',
+      nsfw: params.get('rt_vnsfw') === '1' || (params.get('rt_vnsfw') !== '0' && nsfwDefault),
       mediaType: params.get('rt_vmedia') || '',
       time: params.get('rt_vtime') || ''
     });
@@ -705,7 +710,7 @@
     const filters = normalizeFilters(updates.filters);
     if (filters.mediaType) base.searchParams.set('rt_vmedia', filters.mediaType);
     if (filters.time) base.searchParams.set('rt_vtime', filters.time);
-    if (filters.nsfw) base.searchParams.set('rt_vnsfw', '1');
+    if (filters.nsfw !== nsfwDefault) base.searchParams.set('rt_vnsfw', filters.nsfw ? '1' : '0');
     if (updates.viewId && VIEW_RE.test(updates.viewId)) base.searchParams.set('rt_vview', updates.viewId);
     else if (updates.uploadUuid && UUID_RE.test(updates.uploadUuid)) base.searchParams.set('rt_vupload', updates.uploadUuid);
     else if (updates.uploadHash && HASH_RE.test(updates.uploadHash)) base.searchParams.set('rt_vhash', updates.uploadHash);
@@ -750,6 +755,7 @@
     searchScopeFromUrl,
     parseVisualUrl,
     stripVisualParams,
-    buildVisualUrl
+    buildVisualUrl,
+    setNsfwDefault
   });
 })();

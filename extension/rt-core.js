@@ -6,9 +6,9 @@
 
   const BOOT_KEY = 'rt-boot-cfg-v1';
   const BOOT_SETTING_KEYS = new Set([
-    'postDiscovery', 'feedControls', 'blockedProfiles', 'archiveDiscovery',
+    'postDiscovery', 'feedControls', 'blockedProfiles', 'signedOutSearch', 'archiveDiscovery',
     'restoreDeletedContent', 'subredditArchive', 'subredditArchiveAutomatic',
-    'visualSearch', 'visualSearchPostMenu', 'visualClick', 'visualSearchMediaButton',
+    'visualSearch', 'visualSearchPostMenu', 'visualClick', 'visualSearchMediaButton', 'visualNsfw',
     'cleanShareLinks', 'stopAutoTranslation',
     'commentThreadlines', 'commentThreadlinesCvd', 'commentJump', 'commentJumpSide',
     'backToTop', 'collapseAutoMod', 'collapseChildComments', 'autoLoadMoreComments', 'betterComposer',

@@ -7,8 +7,8 @@ const FALLBACK_VIDEO_DEFAULTS={
   videoOpenPost:'default',cardClickAudio:'keep',videoDirectOpen:'default',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'
 };
 const FALLBACK_SETTINGS_DEFAULTS={
-  postDiscovery:true,feedControls:true,blockedProfiles:true,archiveDiscovery:false,restoreDeletedContent:true,
-  subredditArchive:false,subredditArchiveAutomatic:false,visualSearch:false,visualSearchPostMenu:true,visualClick:'post',visualSearchMediaButton:false,cleanShareLinks:false,stopAutoTranslation:false,
+  postDiscovery:true,feedControls:true,blockedProfiles:true,signedOutSearch:true,archiveDiscovery:false,restoreDeletedContent:true,
+  subredditArchive:false,subredditArchiveAutomatic:false,visualSearch:false,visualSearchPostMenu:true,visualClick:'post',visualSearchMediaButton:false,visualNsfw:false,cleanShareLinks:false,stopAutoTranslation:false,
   commentThreadlines:'off',commentThreadlinesCvd:false,commentJump:'off',commentJumpSide:'right',backToTop:false,collapseAutoMod:false,collapseChildComments:false,autoLoadMoreComments:false,betterComposer:false,
   modUnapprovedFilter:true,raffles:true,downloadMedia:true,
   ownRemoval:false,removalNotifications:false,historyLimit:20,
@@ -23,6 +23,7 @@ function fallbackNormalizeSettings(raw){
     postDiscovery:raw?.postDiscovery!==false,
     feedControls:raw?.feedControls!==false,
     blockedProfiles:raw?.blockedProfiles!==false,
+    signedOutSearch:raw?.signedOutSearch!==false,
     archiveDiscovery:raw?.archiveDiscovery===true,
     restoreDeletedContent:raw?.restoreDeletedContent!==false,
     subredditArchive:raw?.subredditArchive===true,
@@ -31,6 +32,7 @@ function fallbackNormalizeSettings(raw){
     visualSearchPostMenu:raw?.visualSearchPostMenu!==false,
     visualClick:pick('visualClick',['post','viewer','inline'],'post'),
     visualSearchMediaButton:raw?.visualSearchMediaButton===true,
+    visualNsfw:raw?.visualNsfw===true,
     cleanShareLinks:raw?.cleanShareLinks===true,
     stopAutoTranslation:raw?.stopAutoTranslation===true,
     commentThreadlines:pick('commentThreadlines',['off','classic','muted','autumn'],'off'),

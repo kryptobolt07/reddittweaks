@@ -6,11 +6,11 @@ const post=(extra={})=>({id:'abc12',author:'Example',created_utc:1700000000,titl
 test('automatic deleted-content restoration defaults on independently of archive opt-in and media defaults are passive',()=>{
  const m=model();
  assert.deepEqual(JSON.parse(JSON.stringify(m.normalizeSettings())),{
-  postDiscovery:true,feedControls:true,blockedProfiles:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,
+  postDiscovery:true,feedControls:true,blockedProfiles:true,signedOutSearch:true,archiveDiscovery:false,restoreDeletedContent:true,subredditArchive:false,subredditArchiveAutomatic:false,
   cleanShareLinks:false,stopAutoTranslation:false,commentThreadlines:'off',commentThreadlinesCvd:false,commentJump:'off',commentJumpSide:'right',
   backToTop:false,collapseAutoMod:false,collapseChildComments:false,autoLoadMoreComments:false,betterComposer:false,
   modUnapprovedFilter:true,raffles:true,downloadMedia:true,ownRemoval:false,removalNotifications:false,
-  historyLimit:20,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,hideMatureOverlay:true,revealNsfwPostMedia:false,chatSearch:true,visualSearch:false,visualSearchPostMenu:true,visualClick:'post',visualSearchMediaButton:false,navHome:'scroll',navFeeds:'default',navCommunity:'default',navPost:'scroll',navProfile:'default',navSearch:'default',
+  historyLimit:20,smoothFeeds:true,smoothHome:true,smoothSubreddits:true,smoothProfiles:true,smoothSearch:true,smoothComments:false,hideMatureOverlay:true,revealNsfwPostMedia:false,chatSearch:true,visualSearch:false,visualSearchPostMenu:true,visualClick:'post',visualSearchMediaButton:false,visualNsfw:false,navHome:'scroll',navFeeds:'default',navCommunity:'default',navPost:'scroll',navProfile:'default',navSearch:'default',
   videoStart:'default',embedStart:'default',gifStart:'default',mediaClickAction:'default',clickAudio:'muted',embedBlockLinks:'off',
   singleVideo:false,volumeMemory:false,videoScrollAway:'default',videoOpenPost:'default',cardClickAudio:'keep',videoDirectOpen:'default',holdFor2x:false,loopPolicy:'default',streamQuality:'auto'
  });

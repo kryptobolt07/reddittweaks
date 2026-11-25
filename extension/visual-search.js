@@ -289,6 +289,36 @@
     return [...(feed?.querySelectorAll?.(NATIVE_MEDIA_TILE) || [])].map(nativeMediaItem).filter(Boolean);
   }
 
+  // A post's still from its own Reddit data (one post at a time; Reddit refuses batched lookups): its preview image,
+  // which Reddit keeps on its own image servers for embeds too, then the provider's still. The post's JSON first, then
+  // its feed partial when the JSON route is refused.
+  const redditImage = u => { try { const url = new URL(String(u || '').replace(/&amp;/gi, '&')); return url.protocol === 'https:' && /(^|\.)redd\.it$/i.test(url.hostname) ? url.href : ''; } catch { return ''; } };
+  async function postStill(postId) {
+    const id = String(postId || '').replace(/^t3_/i, '').toLowerCase();
+    if (!/^[a-z0-9]{1,12}$/.test(id)) return '';
+    const pick = list => list.map(redditImage).find(Boolean) || '';
+    try {
+      const res = await pageFetch(new URL('/comments/' + id + '.json?limit=1&depth=1&raw_json=1', location.origin).href, { credentials: 'include', headers: { Accept: 'application/json' } });
+      if (res.ok) {
+        const d = (await res.json())?.[0]?.data?.children?.[0]?.data;
+        const image = d?.preview?.images?.[0];
+        const still = pick([(image?.resolutions || []).find(r => r.width >= 480)?.url, image?.source?.url, d?.secure_media?.oembed?.thumbnail_url, d?.media?.oembed?.thumbnail_url]);
+        if (still) return still;
+      }
+    } catch {}
+    try {
+      const res = await pageFetch(new URL('/svc/shreddit/partial-feed-post/t3_' + id, location.origin).href, { credentials: 'include', headers: { Accept: 'text/vnd.reddit.partial+html, text/html;q=0.9' } });
+      if (res.ok) {
+        const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+        const urls = [];
+        for (const node of doc.querySelectorAll('[poster],[thumbnail-url],[thumbnail],[preview-image],[preview-url]')) for (const name of ['poster', 'thumbnail-url', 'thumbnail', 'preview-image', 'preview-url']) urls.push(node.getAttribute(name));
+        for (const img of doc.querySelectorAll('img[src]')) if (!/(?:\/avatars\/|snoovatar|icon|\.svg(?:$|\?))/i.test(img.getAttribute('src'))) urls.push(img.getAttribute('src'));
+        return pick(urls);
+      }
+    } catch {}
+    return '';
+  }
+
   // Reddit renders an embed's player lazily inside its own shadow root, but every shreddit-embed carries the
   // provider's player address in its html attribute from the start. YouTube's still comes from the video id
   // (i.ytimg.com answers CORS for any origin); embedly widgets name their still in an image parameter.
@@ -533,7 +563,10 @@
       this.clickChoice = { visualClick: s.visualClick || 'post', clickAudio: s.clickAudio || 'muted', videoOpenPost: s.videoOpenPost || 'default' };
       if (this.hoveredPreview && !this.hoveredPreview.manual && this.previewMode(this.hoveredPreview.media) === 'none') this.stopVideoPreview();
       const nextLens = nextEnabled && s.visualSearchMediaButton === true;
-      const changed = nextEnabled !== this.enabled || nextMenu !== this.postMenuEnabled || nextLens !== this.mediaLensEnabled;
+      const nsfwChanged = (s.visualNsfw === true) !== this.nsfwDefault;
+      this.nsfwDefault = s.visualNsfw === true;
+      Model.setNsfwDefault?.(this.nsfwDefault);
+      const changed = nextEnabled !== this.enabled || nextMenu !== this.postMenuEnabled || nextLens !== this.mediaLensEnabled || nsfwChanged;
       this.enabled = nextEnabled;
       this.postMenuEnabled = nextMenu;
       this.mediaLensEnabled = nextLens;
@@ -1273,8 +1306,20 @@
           return;
         }
 
-        // Not indexed on infini.wtf yet. From the media lens the reader asked to search with this picture, so it is
-        // uploaded (resized, metadata stripped) as an image search; from the ⋯ menu they choose.
+        // Not indexed on infini.wtf yet. When the page gave no picture, or only a provider's copy (which a Reddit page
+        // can't read: measured with Streamable's CDN), Reddit's own copy from the post's data is used. YouTube's
+        // stills are readable and are kept.
+        const pageStill = this.state.postSeed?.fallbackImageUrl || '';
+        if (!pageStill || !(redditImage(pageStill) || /^https:\/\/i\.ytimg\.com\//.test(pageStill))) {
+          const still = await postStill(postId);
+          if (this.dead || myGen !== this.gen) return;
+          if (still) {
+            this.state.postSeed = { ...(this.state.postSeed || { subreddit, postId, title: '' }), fallbackImageUrl: still };
+            this.savePostSeed(this.state.postSeed);
+          }
+        }
+        // From the media lens the reader asked to search with this picture, so it is uploaded (resized, metadata
+        // stripped) as an image search; from the ⋯ menu they choose.
         if (this.state.postSeed?.autoUpload && this.state.postSeed.fallbackImageUrl) {
           this.uploadAndSearch(this.state.postSeed.fallbackImageUrl, { filters: parsed.filters });
           return;
@@ -1728,6 +1773,7 @@
           ? 'infini.wtf similarity matches do not apply Safe/Media/Time filters.'
           : ['hashing', 'uploading', 'embedding'].includes(st.status) ? 'Not in infini.wtf’s index yet: searching with its picture'
           : st.status === 'ready' || st.status === 'empty' ? 'Searched with this post’s picture'
+          : st.status === 'error' || st.status === 'permission-required' || st.status === 'not-indexed' ? ''
           : 'Checking infini.wtf index…';
         copy.append(make('span', 'rt-vs-banner-title', heading), make('span', 'rt-vs-banner-sub', subline));
         lead.append(copy);
@@ -3166,7 +3212,7 @@
       if (!this.postMenuEnabled) return;
       for (const post of document.querySelectorAll('shreddit-post')) {
         const type = String(post.getAttribute('post-type') || '').toLowerCase();
-        if (!SUPPORTED_POST_TYPES.has(type)) continue;
+        if (!SUPPORTED_POST_TYPES.has(type) && !post.querySelector('shreddit-embed')) continue;
         const menu = post.querySelector('shreddit-post-overflow-menu');
         if (menu) this.syncPostMenuItem(menu, post);
       }
@@ -3176,10 +3222,11 @@
     syncPostMenuItem(menu, post) {
       if (!this.postMenuEnabled) return;
       const type = String(post.getAttribute('post-type') || '').toLowerCase();
-      if (!SUPPORTED_POST_TYPES.has(type)) return;
+      if (!SUPPORTED_POST_TYPES.has(type) && !post.querySelector('shreddit-embed')) return;
       const media = extractPostMedia(post);
       if (!media.postId || !media.subreddit) return;
-      const hasSource = Boolean(media.fallbackImageUrl || DownloadModel?.hasMediaSource?.(post, type));
+      // Embedded media: its still is read from the post's data on the Visual tab when the page has none.
+      const hasSource = Boolean(media.fallbackImageUrl || media.embed || DownloadModel?.hasMediaSource?.(post, type));
       if (!hasSource) return;
 
       const existing = menu.querySelector(':scope > [slot="devvit-context-actions"] [data-rt-visual-menu="item"]');
@@ -3583,7 +3630,8 @@
         if (!(SUPPORTED_POST_TYPES.has(type) || embedded) || !box || blurred) { existing?.remove(); continue; }
         if (existing) continue;
         const media = extractPostMedia(post);
-        if (!media.postId || !media.subreddit || !media.fallbackImageUrl) continue;
+        // Embeds always get one: a still the page doesn't have is read from the post's data on the Visual tab.
+        if (!media.postId || !media.subreddit || !(media.fallbackImageUrl || media.embed)) continue;
         if (getComputedStyle(box).position === 'static') continue;
         box.append(this.buildMediaLens(post));
       }
@@ -3592,7 +3640,7 @@
     // Search with a post's picture (the lens on a post, or a tile on Reddit's Media tab): the post is looked up on
     // infini.wtf, and when it isn't indexed its picture is uploaded as an image search.
     searchFromPost(media) {
-      if (!media?.postId || !media.subreddit || !media.fallbackImageUrl) return;
+      if (!media?.postId || !media.subreddit || !(media.fallbackImageUrl || media.embed)) return;
       this.savePostSeed({ postId: media.postId, subreddit: media.subreddit, title: media.title || '', fallbackImageUrl: media.fallbackImageUrl, autoUpload: true });
       const dest = Model.buildVisualUrl(location.href, {
         basePath: '/search/',

@@ -200,3 +200,8 @@ User report: a Visual tab inside profile search, no way to move between results 
 ### Embed lens follow-up (2026-11-25)
 
 The lens appeared only on embed posts whose player had already drawn (4 of 12 on r/videos): players render lazily inside the embed's shadow root, which the page observer can't see. Every `shreddit-embed` carries its player address in its `html` attribute from the start, so YouTube's still is derived from the video id (`i.ytimg.com/vi/<id>/hqdefault.jpg`, CORS `*`), and embedly widgets give theirs in an `image` parameter. Lens placement is also re-checked when scrolling rests. Live after: 24 of 24 embed posts on r/videos (phone).
+
+### Every embed provider, and two new options (2026-11-25)
+
+- Embeds whose player address gives no still (any provider but YouTube and embedly widgets) now get the lens and the ⋯ *Find visually similar* item too. On the Visual tab, when the page gave no picture or only the provider's copy, the still comes from the post's own Reddit data (`/comments/<id>.json`, then its feed partial): Reddit's `external-preview.redd.it` copy, which a Reddit page can read. A provider's copy can't be read from a Reddit page (measured: Streamable's CDN), so it is only used when Reddit has none. Live: a Streamable post on r/LivestreamFail searched with Reddit's copy and went on to "Finding images that look like yours…".
+- **NSFW results by default** (popup, off by default): with it on, the Visual tab starts with NSFW included. A Visual URL names NSFW only when it differs from the reader's default (`rt_vnsfw=1` or `rt_vnsfw=0`), so the tab, the lens, the ⋯ item and image search all follow it.

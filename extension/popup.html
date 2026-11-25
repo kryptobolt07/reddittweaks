@@ -69,6 +69,10 @@
           <input class="switch" type="checkbox" id="blocked-profiles" data-setting="blockedProfiles" aria-describedby="blocked-profiles-desc">
         </div>
         <div class="setting-row" data-requires="post-discovery" data-level="2">
+          <div class="setting-copy"><label for="signed-out-search">Signed-out comment search</label><p id="signed-out-search-desc">Also search a profile’s comments as a signed-out visitor, to find ones Reddit leaves out of the profile. Never uses your account.</p></div>
+          <input class="switch" type="checkbox" id="signed-out-search" data-setting="signedOutSearch" aria-describedby="signed-out-search-desc">
+        </div>
+        <div class="setting-row" data-requires="post-discovery" data-level="2">
           <div class="setting-copy"><label for="history-limit">History length</label><p id="history-limit-desc">Keep more future views on this device. Reddit’s 20 restores the native list and clears recorded views.</p></div>
           <button id="history-limit" class="setting-choice" type="button" data-choice="historyLimit" data-default="20" data-value-type="number" data-count="exclude" data-menu-width="164" aria-haspopup="menu" aria-expanded="false" aria-controls="history-limit-menu" aria-describedby="history-limit-desc" disabled><span data-choice-value>20</span><svg aria-hidden="true" viewBox="0 0 20 20"><path d="m5 7 5 5 5-5"/></svg></button>
           <div id="history-limit-menu" class="setting-menu" role="menu" aria-label="History length" hidden>
@@ -525,12 +529,16 @@
           <input class="switch" type="checkbox" id="visual-search" data-setting="visualSearch" aria-describedby="visual-search-desc">
         </div>
         <div class="setting-row" data-requires="visual-search" data-level="2">
-          <div class="setting-copy"><label for="visual-search-post-menu">Post menu shortcut</label><p id="visual-search-post-menu-desc">Add “Find visually similar” to media posts’ ⋯ menu.</p></div>
+          <div class="setting-copy"><label for="visual-search-post-menu">Post menu shortcut</label><p id="visual-search-post-menu-desc">Add “Find visually similar” to the ⋯ menu of media and embedded-video posts.</p></div>
           <input class="switch" type="checkbox" id="visual-search-post-menu" data-setting="visualSearchPostMenu" aria-describedby="visual-search-post-menu-desc">
         </div>
         <div class="setting-row" data-requires="visual-search" data-level="2">
-          <div class="setting-copy"><label for="visual-search-media-button">Lens on images and videos</label><p id="visual-search-media-button-desc">A lens button on Reddit’s images, GIFs and videos searches with that picture (videos and GIFs use their thumbnail).</p></div>
+          <div class="setting-copy"><label for="visual-search-media-button">Lens on images and videos</label><p id="visual-search-media-button-desc">A lens button on images, GIFs, videos and embedded videos searches with that picture (clips use their still).</p></div>
           <input class="switch" type="checkbox" id="visual-search-media-button" data-setting="visualSearchMediaButton" aria-describedby="visual-search-media-button-desc">
+        </div>
+        <div class="setting-row" data-requires="visual-search" data-level="2">
+          <div class="setting-copy"><label for="visual-nsfw">NSFW results by default</label><p id="visual-nsfw-desc">Start the Visual tab with NSFW results included. Each search can still switch it.</p></div>
+          <input class="switch" type="checkbox" id="visual-nsfw" data-setting="visualNsfw" aria-describedby="visual-nsfw-desc">
         </div>
         <div class="setting-row" data-requires="visual-search" data-level="2">
           <div class="setting-copy"><label for="visual-click">Clicking a result</label><p id="visual-click-desc">What a click on a result’s picture or clip does. Titles always open the post.</p></div>
