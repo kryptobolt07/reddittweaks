@@ -472,6 +472,23 @@
     input.addEventListener('input',()=>{list.scrollTop=0;render();});
     return {el,list,note,input,back,head,render,reset(){input.value='';if(clear)clear.hidden=true;list.scrollTop=0;},get data(){return last;}};
   }
+  // A filter change makes a different list. A reader who had scrolled past its start goes back to the start, as a
+  // fresh load of that list would, instead of staying beside whichever card was on screen: keeping that card in place
+  // put a reader who cleared a filter deep inside the unfiltered feed, with every card above it filled back in.
+  // `start` is the feed's control row (or the feed itself); it sits above the cards, so their changes never move it.
+  function headerBottom(){const bottom=document.querySelector('reddit-header-large,reddit-header-small')?.getBoundingClientRect().bottom || 0;return bottom>0?bottom:0;}
+  function pastFeedStart(start){if(!start?.isConnected)return false;const box=start.getBoundingClientRect();return Boolean(box.width || box.height) && box.top<headerBottom();}
+  function toFeedStart(start){if(!start?.isConnected)return false;const top=start.getBoundingClientRect().top-headerBottom()-8;if(top>=0)return false;window.scrollBy({top,behavior:'instant'});return true;}
+  // Runs a filter change and keeps the list's start where the reader sees it: back at the start when they had scrolled
+  // past it, otherwise exactly where it was. Keeping whichever card was on screen instead moved the page by every card
+  // the change added or hid above it (clearing a filter put a reader hundreds of pixels down the unfiltered feed).
+  function keepFeedStart(start,change){
+    if(!start?.isConnected)return change();
+    const past=pastFeedStart(start),top=start.getBoundingClientRect().top;
+    const result=change();
+    if(start.isConnected){if(past)toFeedStart(start);else{const delta=start.getBoundingClientRect().top-top;if(Math.abs(delta)>1)window.scrollBy({top:delta,behavior:'instant'});}}
+    return result;
+  }
   const iconNames=Object.freeze([...Object.keys(iconPaths),'gif']);
-  globalThis.RTFeedFilters=Object.freeze({params:Object.freeze({...params}),types,typeLabels,typeIcons,typeSections,presets,hourPreset,allPresets,sorts,maxSubreddits,empty,clone,parse,serialize,isActive,equal,applyToSearch,write,read,dateRange,predicate,normalizeType,inferType,countSubreddits,mergeCounts,dateLabel,dateShort,subLabel,valueLabels,chipList,renderChips,fitRail,appliedRow,openApplied:openRailList,appliedCount:container=>appliedPills(container).length,pill,parsedElement,menuOption,markChecked,plainContext,sectionLabel,typeOptions,submenuHeader,subredditPanel,communityIcon,loadIcon,svgIcon,iconNames,subName});
+  globalThis.RTFeedFilters=Object.freeze({params:Object.freeze({...params}),types,typeLabels,typeIcons,typeSections,presets,hourPreset,allPresets,sorts,maxSubreddits,empty,clone,parse,serialize,isActive,equal,applyToSearch,write,read,dateRange,predicate,normalizeType,inferType,countSubreddits,mergeCounts,dateLabel,dateShort,subLabel,valueLabels,chipList,renderChips,fitRail,appliedRow,openApplied:openRailList,appliedCount:container=>appliedPills(container).length,pill,parsedElement,menuOption,markChecked,plainContext,sectionLabel,typeOptions,submenuHeader,subredditPanel,communityIcon,loadIcon,svgIcon,iconNames,subName,pastFeedStart,toFeedStart,keepFeedStart});
 })();

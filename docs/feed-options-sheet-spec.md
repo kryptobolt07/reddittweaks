@@ -42,3 +42,12 @@ Icons are Reddit's own, captured from the server HTML of `/user/reddit/submitted
 Chrome CDP at 390 px captured profile sort and layout items with Reddit's Hot, New, Card and Compact icons and their checkmarks. The page's native bottom-sheet hosts were closed in that capture. The subreddit View button remains Reddit's existing control.
 
 A Chrome CDP touch fixture measured the sheet at 390 px wide, flush with the viewport bottom, with a 69 px header and a 54 px row with subtitle. The text was 16 px and 14 px. Touch opening showed no ring around Close, the 220 ms slide settled flush with the viewport, and reduced motion removed the transition. Closing restored focus to the trigger.
+
+## Filter changes keep the feed's start in place (2026-11-25)
+
+User report: after scrolling a filtered profile and removing the filter, the page sat deep inside the unfiltered feed; with a sparse filter the page kept moving up and down until results arrived (both worse on phones).
+
+- Measured (phone, 412 px, u/GallowBoob): clearing *Videos* with the Sort & filter button at 441 px moved the page 466 px down (the first filtered card was kept in place while the cards above it came back). With *Polls*, the page height swung 915 ↔ 1022 px about once a second: Reddit removes and re-adds its 192 px page loader for every page it fetches, and the extension's hidden loader kept its space beside it.
+- Now every in-place filter change (profiles and community feeds) keeps the list's start where the reader sees it: the Sort & filter button stays at the same height, and a reader who had scrolled past it goes back to it (`RTFeedFilters.keepFeedStart`). This replaces T4's "current scroll position kept".
+- While Reddit's loader shows, the extension's own loader gives up its space, so the two swap in the same frame.
+- After: clearing kept the button at 441 px; the loader swap changed no container height.

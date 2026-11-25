@@ -47,6 +47,10 @@
   // These bounds only stop a runaway walk, and stopping at one is reported as incomplete.
   const removedItemBound=20000,removedVisitorPages=1000,removedHistoryPages=500;
   const publicBlockMs=600000,publicBlockedNote='Some comments may be missing · Reddit is blocking logged-out search';
+  // Firefox can't make the signed-out read the public comment stream needs (no credentialless frames, and Reddit refuses
+  // or the browser blocks the extension's own signed-out request), so that stream is skipped there instead of failing
+  // with a network error or the blocked note every time the profile reloads (docs/firefox-build-spec.md).
+  const publicStreamSupported=!globalThis.browser?.runtime?.getBrowserInfo;
   // Viewed-posts History (docs/viewed-history-spec.md): above Reddit's own 20, your History tab is drawn by the extension.
   let viewedHistoryOn=false;
   function historySectionRoute(username,search,ownName){
@@ -2179,7 +2183,9 @@
       next=f.clone(next);next.subreddits=next.subreddits.slice(0,f.maxSubreddits);const prev=this.rtFilters || f.empty();if(f.equal(prev,next))return;
       if(this.isOwnList()){const dateChanged=this.context.list==='removed' && JSON.stringify(prev.date)!==JSON.stringify(next.date);this.rtFilters=next;this.rtPred=null;if(write){const url=new URL(location.href);for(const name of ['rt_date','rt_type','rt_sub','rt_sort'])url.searchParams.delete(name);for(const [name,value] of Object.entries(f.serialize(next)))url.searchParams.set(name,value);replaceUrl(url);}this.rtSearch=location.search;this.searchParkAt=this.searchParkKey();this.renderFilterChips();this.syncFilterMenu();if(dateChanged){this.generation=++generationSeq;for(const c of this.controllers)c.abort();this.controllers.clear();this.listState={items:new Map(),scanned:0,loading:false,done:false,capped:false,error:'',after:null};this.loadOwnList();}else this.renderOwnList();return;}
       if(this.isSearch()){this.restartSearch(next,{write});return;}
-      this.rtFilters=next;this.rtPred=null;if(write){f.write(next);}this.rtSearch=location.search;this.applyFilters(prev);
+      this.rtFilters=next;this.rtPred=null;if(write){f.write(next);}this.rtSearch=location.search;
+      // The list starts again where the reader sees its start (RTFeedFilters.keepFeedStart), never beside a card.
+      const button=this.activityDropdown?.isConnected?this.activityDropdown.querySelector(FEED_TRIGGER):null,box=button?.getBoundingClientRect(),start=box && (box.width || box.height)?button:this.feed;if(f.keepFeedStart)f.keepFeedStart(start,()=>this.applyFilters(prev));else this.applyFilters(prev);
     }
     applyFilters(prev){
       const f=globalThis.RTFeedFilters;this.renderFilterChips();if(this.rtAgg && this.rtAgg.key!==this.aggKey())this.rtAgg=null;this.syncFilterMenu();this.renderSubredditOptions();
@@ -2807,7 +2813,7 @@
       finally{if(generation===this.generation){this.busy=false;this.host.removeAttribute('aria-busy');this.more.disabled=false;if(this.feed){this.batchAutoPaused=this.primaryFailure();this.updateProfileLoading();this.updateActivityEmptyState();}else this.loading.hidden=true;this.discover.disabled=this.archiveBusy;if(this.archiveButton)this.archiveButton.disabled=this.archiveBusy;this.ensureActivityArchive();}}
     }
     loadReddit({more=false,retry=false,keys=null,force=false}={}){if(this.isOwnList())return;if(this.isSearch() && !this.clientSearchOn())return;if(this.busy)return this.redditRun;if(force)this.publicBlockedUntil=0;if(!more && !retry){this.initialPrefetchDone=false;this.pages=0;this.recoveryChecked.clear();this.sourceErrors={};this.sourceNotices={};this.clearSourceRetries(key=>!key.startsWith('archive-'));this.refreshStatuses();}if(retry && !keys)this.clearSourceRetries(key=>!key.startsWith('archive-') && !['recovery','replies','verify'].includes(key));if(this.archiveOnly)return this.loadArchive({more});if(this.nativeBatch?.blocked){this.nativeBatch.blocked=false;this.nativeBatch.serverRetryAt=0;this.drainNative(this.nativeBatch);}
-      const frontier=this.publicationFloor(),blockedOverview=this.blockedOverviewStream(),streams=[...(blockedOverview?['overview']:this.kinds()).flatMap(kind=>this.blockedProfile?[{kind,key:kind,stream:'blocked'}]:kind==='comment' && !this.isSearch()?[{kind,key:'comment',stream:'authenticated'},{kind,key:'comment-public',stream:'public'}]:[{kind,key:kind}]),...this.blockedHiddenStreams()]      .filter(({key})=>{if(key!=='comment-public' || !(this.publicBlockedUntil>Date.now()))return true;this.sourceNotices[key]=publicBlockedNote;this.redMore[key]=false;return false;})
+      const frontier=this.publicationFloor(),blockedOverview=this.blockedOverviewStream(),streams=[...(blockedOverview?['overview']:this.kinds()).flatMap(kind=>this.blockedProfile?[{kind,key:kind,stream:'blocked'}]:kind==='comment' && !this.isSearch()?[{kind,key:'comment',stream:'authenticated'},...(publicStreamSupported?[{kind,key:'comment-public',stream:'public'}]:[])]:[{kind,key:kind}]),...this.blockedHiddenStreams()]      .filter(({key})=>{if(key!=='comment-public' || !(this.publicBlockedUntil>Date.now()))return true;this.sourceNotices[key]=publicBlockedNote;this.redMore[key]=false;return false;})
       .filter(({key})=>retry?(keys?keys.includes(key):Boolean(this.sourceErrors[key])):!more || this.redMore[key] && (this.context.sort!=='new' || (this.sourceFrontiers.get(key)?.floor ?? Infinity)>=frontier));
       for(const {key} of streams){if(!more && !retry)this.sourceFrontiers.delete(key);this.sourcePending.add(key);this.sourceStartedAt.set(key,Date.now());}
       if(streams.length)this.scheduleGate(this.sourceWaitMs);

@@ -108,3 +108,30 @@ test('applied filters: badge on the owner button, one summary chip on computers,
   width=30;textRoom=300;F.fitRail(box);assert.ok(box.hasAttribute('data-rt-collapsed'));assert.equal(box.querySelector('.rt-filter-summary'),null);assert.equal(owner.getAttribute('data-rt-filter-count'),'5','badge stays');
   width=2000;F.fitRail(box);box.querySelector('.rt-filter-summary-clear').click();assert.equal(box.hidden,true);assert.equal(owner.hasAttribute('data-rt-filter-count'),false);
 });
+test('a filter change returns a reader who scrolled past the feed start to it, and leaves one above it alone',()=>{
+  const {W,F}=load();const d=W.document;
+  d.body.innerHTML='<reddit-header-large></reddit-header-large><div id="row"></div>';
+  d.querySelector('reddit-header-large').getBoundingClientRect=()=>({top:0,bottom:56,height:56,width:1000});
+  const row=d.getElementById('row');let top=-900;row.getBoundingClientRect=()=>({top,bottom:top+40,height:40,width:600});
+  const moves=[];W.scrollBy=arg=>{moves.push(arg.top);top-=arg.top;};
+  assert.equal(F.pastFeedStart(row),true);
+  assert.equal(F.toFeedStart(row),true);
+  assert.deepEqual(moves,[-964],'the control row lands 8 px under the header');
+  assert.equal(F.pastFeedStart(row),false);
+  assert.equal(F.toFeedStart(row),false,'already in view: nothing moves');
+  assert.equal(moves.length,1);
+  assert.equal(F.pastFeedStart(null),false);
+});
+test('a filter change with the feed start on screen keeps that start exactly where it was',()=>{
+  const {W,F}=load();const d=W.document;
+  d.body.innerHTML='<reddit-header-large></reddit-header-large><div id="row"></div>';
+  d.querySelector('reddit-header-large').getBoundingClientRect=()=>({top:0,bottom:56,height:56,width:1000});
+  const row=d.getElementById('row');let top=300;row.getBoundingClientRect=()=>({top,bottom:top+40,height:40,width:600});
+  const moves=[];W.scrollBy=arg=>{moves.push(arg.top);top-=arg.top;};
+  // The change (cards coming back above the one on screen) scrolled the page 440 px down.
+  assert.equal(F.keepFeedStart(row,()=>{top-=440;return 'done';}),'done');
+  assert.deepEqual(moves,[-440]);assert.equal(top,300);
+  // Scrolled past the start: back to it.
+  top=-1200;moves.length=0;F.keepFeedStart(row,()=>{top-=300;});
+  assert.deepEqual(moves,[-1564]);assert.equal(top,64);
+});

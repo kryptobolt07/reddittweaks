@@ -117,8 +117,12 @@ html[data-rt-profile-comments] main shreddit-sort-dropdown:not([data-rt-ui] *){v
 shreddit-feed[data-rt-activity="hidden"]>:not([data-rt-ui]):is(shreddit-post,shreddit-profile-comment,:has(shreddit-post,shreddit-profile-comment)),
 shreddit-feed[data-rt-activity="deleted"]>:not([data-rt-ui]):not([data-rt-activity-match]):is(shreddit-post,shreddit-profile-comment,:has(shreddit-post,shreddit-profile-comment)){display:none!important}
 /* The sentinel stays measurable when Reddit already owns the visible halo. */
-/* A paused or handed-over halo keeps its space: collapsing it shortens the page and pulls a reader at the end back up. */
-.rt-native-loading[hidden],shreddit-feed[data-rt-loading-owner="native"]>[data-rt-ui="profile-loading"]>.rt-native-loading{display:block!important;visibility:hidden!important}
+/* A paused halo keeps its space: collapsing it shortens the page and pulls a reader at the end back up. */
+.rt-native-loading[hidden]{display:block!important;visibility:hidden!important}
+/* While Reddit's own page loader shows, ours gives up its space instead: Reddit removes and re-adds its loader for
+   every page it fetches (about once a second while a filter hides what arrives), and two stacked loaders made the
+   page grow and shrink by a loader's height each time, which moved a reader near the end up and down. */
+shreddit-feed[data-rt-loading-owner="native"]>[data-rt-ui="profile-loading"]>.rt-native-loading{display:none!important}
 shreddit-feed[data-rt-loading-owner="native"]>[data-rt-ui="profile-loading"]{min-height:1px}
 
 .rt-native-card:is([data-rt-native-state="idle"],[data-rt-native-state="queued"],[data-rt-native-state="loading"]){display:none!important}

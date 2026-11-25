@@ -1930,8 +1930,14 @@
     }
 
     replaceLocalUrl(url) {
-      if (url.href !== location.href) history.replaceState(history.state,'',url.pathname + url.search + url.hash);
-      this.refresh();
+      if (url.href === location.href) { this.refresh(); return; }
+      // A filter change keeps the list's start where the reader sees it (RTFeedFilters.keepFeedStart), never a card.
+      const start = this.options?.isConnected ? this.options : this.feed, apply = () => {
+        history.replaceState(history.state,'',url.pathname + url.search + url.hash);
+        this.refresh();
+      };
+      if (globalThis.RTFeedFilters?.keepFeedStart) globalThis.RTFeedFilters.keepFeedStart(start,apply);
+      else apply();
     }
 
     go(url) {
