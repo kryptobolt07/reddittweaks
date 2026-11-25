@@ -40,6 +40,7 @@
   function create({fetch:fetcher=(...args)=>globalThis.fetch(...args),doc=()=>globalThis.document,Parser=()=>globalThis.DOMParser,hint=name=>globalThis.RTPostDiscovery?.avatarHint?.(name),
     setTimer=(fn,ms)=>setTimeout(fn,ms),now=()=>Date.now(),gap=60,concurrency=4,pause=60000,max=300,storage=()=>globalThis.sessionStorage}={}){
     const cache=new Map(),pending=new Map(),queue=[];let active=0,nextStart=0,pausedUntil=0,timer=null,saveTimer=null;
+    let pageIndex;
     // Public icon URLs survive reloads for this browser session, so a menu reopened later shows them at once.
     const KEY='rt-community-icons-v1',store=()=>{try{return typeof storage==='function'?storage():storage;}catch{return null;}};
     try{const saved=JSON.parse(store()?.getItem(KEY) || '[]');if(Array.isArray(saved))for(const [key,url] of saved.slice(-max))if(typeof key==='string' && normalize(key) && (url===null || safeUrl(url)===url))cache.set(key.toLowerCase(),url);}catch{}
@@ -48,23 +49,83 @@
     const save=()=>{if(saveTimer!==null)return;saveTimer=setTimer(()=>{saveTimer=null;try{store()?.setItem(KEY,JSON.stringify([...cache].slice(-max)));store()?.setItem(COLORS,JSON.stringify([...colors].slice(-max)));}catch{}},500);};
     const tint=(key,color)=>{const safe=safeColor(color);if(!safe || colors.get(key)===safe)return;colors.delete(key);colors.set(key,safe);while(colors.size>max)colors.delete(colors.keys().next().value);save();};
     const remember=(key,value)=>{cache.delete(key);cache.set(key,value);while(cache.size>max)cache.delete(cache.keys().next().value);save();};
+    function invalidatePageIndex(index,records){
+      for(const record of records){
+        if(!index.cards && !index.links)break;
+        if(record.type==='attributes'){
+          if(record.attributeName==='href' && record.target.localName==='a')index.links=null;
+          if(record.attributeName==='subreddit-name' && record.target.localName==='shreddit-post')index.cards=null;
+          continue;
+        }
+        for(const nodes of [record.addedNodes,record.removedNodes])for(const node of nodes){
+          if(node.nodeType!==1)continue;
+          // Images and styling are read live. Only a changed candidate or order
+          // can invalidate these lists, and plain menu rows contain neither.
+          if(index.links && (node.matches('a') || node.querySelector('a')))index.links=null;
+          if(index.cards && (node.matches('shreddit-post') || node.querySelector('shreddit-post')))index.cards=null;
+        }
+      }
+    }
+    function indexFor(d){
+      if(pageIndex?.doc===d){
+        invalidatePageIndex(pageIndex,pageIndex.observer.takeRecords());
+        return pageIndex;
+      }
+      const index={doc:d,cards:null,links:null};
+      if(typeof MutationObserver!=='function')return index;
+      const observer=new MutationObserver(records=>invalidatePageIndex(index,records));
+      try{observer.observe(d,{subtree:true,childList:true,attributes:true,attributeFilter:['href','subreddit-name']});}
+      catch{return index;}
+      pageIndex?.observer.disconnect();index.observer=observer;pageIndex=index;
+      // Rows built in the same turn share discovery work. Keep no DOM snapshots
+      // or observer alive between bursts.
+      queueMicrotask(()=>{observer.disconnect();if(pageIndex===index)pageIndex=null;});
+      return index;
+    }
+    function startCandidates(nodes,limit=nodes.length){
+      return {nodes,next:0,end:Math.min(nodes.length,limit),byName:new Map()};
+    }
+    function* candidates(source,name,keyOf){
+      const known=source.byName.get(name);
+      if(known)yield* known;
+      while(source.next<source.end){
+        const node=source.nodes[source.next++];
+        if(source.next===source.end)source.nodes=null;
+        const key=keyOf(node);
+        if(!key)continue;
+        let group=source.byName.get(key);
+        if(!group){group=[];source.byName.set(key,group);}
+        group.push(node);
+        if(key===name)yield node;
+      }
+    }
+    const cardName=card=>card.getAttribute('subreddit-name')?.toLowerCase();
+    function linkPath(anchor){
+      try{
+        const path=new URL(anchor.getAttribute('href'),'https://www.reddit.com').pathname.toLowerCase().replace(/\/+$/,'');
+        if(/^\/(?:r|u(?:ser)?)\/[\w-]{1,40}$/.test(path))return path.replace(/^\/u\//,'/user/');
+      }catch{}
+      return '';
+    }
     // Icons that Reddit already painted on this page.
     function fromPage(name){
       const d=typeof doc==='function'?doc():doc;if(!d?.querySelectorAll)return '';
       const lower=name.toLowerCase(),user=/^u_./i.test(name),bare=user?name.slice(2).toLowerCase():lower;
       try{const hinted=safeUrl(hint(lower) || '');if(hinted)return hinted;}catch{}
+      const index=indexFor(d);
       const pick=root=>{
         const img=root?.querySelector?.('[avatar] img[src]') || [...(root?.querySelectorAll?.('img[src]') || [])].find(i=>/communityIcon|avatar|snoo/i.test(i.getAttribute('src') || ''));
         const url=safeUrl(img?.getAttribute('src') || '');
         if(url)tint(lower,colorOf(img));
         return url;
       };
-      if(!user)for(const card of d.querySelectorAll('shreddit-post[subreddit-name]'))if((card.getAttribute('subreddit-name') || '').toLowerCase()===lower){const url=pick(card.querySelector('[slot="credit-bar"]') || card);if(url)return url;}
-      let seen=0;
-      for(const a of d.querySelectorAll('a[href]')){
-        if(++seen>3000)break;
-        let path;try{path=new URL(a.getAttribute('href'),'https://www.reddit.com').pathname.toLowerCase().replace(/\/+$/,'');}catch{continue;}
-        if(path==='/'+(user?'user':'r')+'/'+bare || user && path==='/u/'+bare){const url=pick(a);if(url)return url;}
+      if(!user){
+        index.cards ||= startCandidates(d.querySelectorAll('shreddit-post[subreddit-name]'));
+        for(const card of candidates(index.cards,lower,cardName)){const url=pick(card.querySelector('[slot="credit-bar"]') || card);if(url)return url;}
+      }
+      index.links ||= startCandidates(d.querySelectorAll('a[href]'),3000);
+      for(const anchor of candidates(index.links,'/'+(user?'user':'r')+'/'+bare,linkPath)){
+        const url=pick(anchor);if(url)return url;
       }
       return '';
     }
