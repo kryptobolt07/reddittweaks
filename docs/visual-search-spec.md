@@ -166,3 +166,33 @@ Measured live (r/popular, desktop 1440 px and phone 412 px): the media slot's fi
 ### Header lens timing (2026-11-24)
 
 User report: the lens appeared a moment after the search bar on first load. Measured live (bar visible → lens visible): desktop +75 to +365 ms, phone +550 to +565 ms, because the lens was drawn by `visual-search.js` (document_idle) after its settings round trip, and Reddit renders the input inside the search host's shadow root, which the document observer cannot see. Now `visual-search-boot.js` (document_start) draws it (`RTVisualLens`): from the tab's session flag, or on a tab's first page from its own early settings request; it watches the document and each search host's shadow root and checks inside the observer callback (before paint). `visual-search.js` reuses the same button and answers a click made before it was ready. Live after: desktop 0 ms, phone 0–1 ms after the bar (Home, community, Home again). Unit: "the header lens is drawn at document start, before visual-search.js has its settings".
+
+## Everyday polish (2026-11-25)
+
+User report: a Visual tab inside profile search, no way to move between results in the phone viewer, no viewer on Reddit's Media tab, a second lens in the results row, "Could not read the Reddit image directly", no lens on embedded media, and Back after the post lens moving forward again.
+
+### Findings (signed-in Chrome Dev, 412 px phone)
+
+- Profile search (`/user/<name>/search/`) is drawn by profile discovery with the id `search-results-page-tabgroup`, so the Visual tab was injected there (tabs measured: Posts, Media, Visual, Comments).
+- The viewer hid its side arrows on phones and relied on swipes on the stage, but a clip plays in the player frame, which receives every touch over it.
+- Reddit's Media tab tiles carry `packaged-media-json` with direct MP4s on `packaged-media.redd.it` (220p to 1080p). The page's CSP allows them, so a plain `<video>` plays them in the page. Most tiles are one `<a>` around everything; the title is in the tile's `data-faceplate-tracking-context` (`post.title`).
+- Reddit's image hosts (`i.redd.it`, `preview.redd.it`, `external-preview.redd.it`) answer CORS with `Access-Control-Allow-Origin: https://www.reddit.com` for every origin (curl, 2026-11-25). The extension background has no host access to them, and Firefox content-script `fetch` goes out as the extension, so both reads failed there.
+- The post lens opens `rt_vpost`; for an unindexed post the upload then pushed the results URL, so Back landed on `rt_vpost`, which uploaded and pushed forward again.
+
+### Behaviour
+
+- No Visual tab on profile search scopes; an image search started there goes to the global Visual tab.
+- Viewer on phones: a bottom bar with Previous, the count and Next; the player frame reports horizontal swipes (`swipe` message: `next`, `previous`, `down` closes). Near the end of what is loaded, the grid's next page loads too.
+- Reddit's Media tab: a full-screen button on each tile (top right; on hover with a mouse, always on touch) opens the same viewer. Clips play Reddit's MP4 (tallest up to 720p) from the tile's moment; the tile behind the viewer scrolls into place so Reddit keeps loading and Close returns there. *Find visually similar* searches with the post's picture; Download is hidden for these.
+- Touch: pressing and holding a clip in the Visual grid (300 ms, finger still) previews it muted while held; lifting stops it and is not a tap. A clip already previewing keeps playing.
+- The results row has no upload lens when the search bar has one.
+- Post pictures are read with the page's own fetch (Firefox `content.fetch`), and turning Visual search on also asks for the three Reddit image hosts so the background can read them.
+- The lens also appears on embedded media; it searches with the embed's still (Reddit's `external-preview.redd.it` copy first, then the provider's).
+- An image search from a post replaces that post's entry (`rt_vpost`) instead of pushing; Back returns to the feed at the same position.
+- While infini.wtf analyses a new picture, the header says so, and after about 8 s the wait is explained (it can take up to half a minute).
+
+### Verification
+
+- Live (phone, 412 px): profile search tabs Posts, Media, Comments; 14/14 Media tab tiles got the button; the viewer played `m2-res_720p.mp4` from 3.4 s, moved to 2 / 14 with the bar, and closed; the Visual row had no second lens; lens → Visual search → Back returned to `/r/aww/` at the same scroll position (1187 px).
+- Unit: profile scope, phone bar and frame swipes, hold preview, `rt_vpost` replace, embed stills, Media tab viewer.
+- Not verified: press-and-hold on a real touch screen (Playwright has no long-press without raw CDP), Firefox, the browser's permission prompt for the image hosts.

@@ -176,6 +176,9 @@
   },
   "version_name": "0.66.0 preview",
   "optional_host_permissions": [
+    "https://i.redd.it/*",
+    "https://preview.redd.it/*",
+    "https://external-preview.redd.it/*",
     "https://www.redgifs.com/*",
     "https://player.vimeo.com/*",
     "https://vimeo.com/*",

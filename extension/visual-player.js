@@ -62,6 +62,25 @@
   for (const type of ['pause', 'play', 'volumechange', 'ended']) video.addEventListener(type, () => post(type));
   video.addEventListener('error', () => post('error', { error: video.error?.code || 'media' }));
 
+  // Touches on the clip land in this frame, never in the viewer around it: report swipes so the viewer can move to
+  // the next result (left / right) or close (down) the same as it does for images.
+  if (mode === 'viewer') {
+    let touch = null;
+    document.addEventListener('touchstart', e => {
+      const t = e.touches.length === 1 ? e.touches[0] : null;
+      touch = t ? { x: t.clientX, y: t.clientY, at: performance.now() } : null;
+    }, { passive: true });
+    document.addEventListener('touchend', e => {
+      const t = e.changedTouches[0];
+      if (!touch || !t) return;
+      const dx = t.clientX - touch.x, dy = t.clientY - touch.y, quick = performance.now() - touch.at < 800;
+      touch = null;
+      if (!quick) return;
+      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) post('swipe', { direction: dx < 0 ? 'next' : 'previous' });
+      else if (dy > 90 && Math.abs(dy) > Math.abs(dx) * 1.5) post('swipe', { direction: 'down' });
+    }, { passive: true });
+  }
+
   window.addEventListener('message', event => {
     if (event.source !== window.parent || event.origin !== parentOrigin) return;
     const msg = event.data;

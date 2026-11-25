@@ -283,7 +283,9 @@ async function loadSettings(){
 
 // Visual search talks to infini.wtf. Site access can be withheld (Chrome site access, Firefox optional host
 // permissions), so turning it on asks for it; the prompt only appears when access is missing.
-const VISUAL_ORIGINS=['https://infini.wtf/*','https://video.infini.wtf/*'];
+// infini.wtf, and Reddit's image hosts so a post's image can be read for "search with this image" (they answer CORS
+// only for www.reddit.com, so the extension needs host access to read them from its background).
+const VISUAL_ORIGINS=['https://infini.wtf/*','https://video.infini.wtf/*','https://i.redd.it/*','https://preview.redd.it/*','https://external-preview.redd.it/*'];
 function saveSetting(control){
   const key=control.dataset.setting,next=control.checked;
   const perms=(globalThis.browser || globalThis.chrome)?.permissions;

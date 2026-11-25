@@ -511,12 +511,12 @@
       if (!bytes || !bytes.byteLength) return fail('Image file is empty or too large (max 10 MB).', 'invalid-request');
     } else if (message.redditImageUrl) {
       const redditUrl = safeRedditImage(message.redditImageUrl);
-      if (!redditUrl) return fail('Only Reddit image URLs can be uploaded directly.', 'invalid-request');
+      if (!redditUrl) return fail('Couldn’t read this post’s picture. Save it and search with the file instead.', 'invalid-request');
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
       try {
         const res = await fetch(redditUrl, { credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error', signal: controller.signal });
-        if (!res.ok) return fail('Could not read the Reddit image for visual search.', 'reddit-image-error');
+        if (!res.ok) return fail('Couldn’t read this post’s picture. Try again, or save it and search with the file.', 'reddit-image-error');
         const ctype = String(res.headers?.get?.('Content-Type') || '').split(';', 1)[0].trim().toLowerCase();
         if (ctype && ALLOWED_IMAGE_TYPES.has(ctype)) {
           mimeType = ctype === 'image/jpg' ? 'image/jpeg' : ctype;
@@ -525,7 +525,7 @@
         bytes = await readBoundedBytes(res, controller, MAX_IMAGE_BYTES);
         if (!bytes || !bytes.byteLength) return fail('Post image exceeds the 10 MB visual search limit.', 'invalid-request');
       } catch {
-        return fail('Could not read the Reddit image directly.', 'reddit-image-error');
+        return fail('Couldn’t read this post’s picture. Try again, or save it and search with the file.', 'reddit-image-error');
       } finally {
         clearTimeout(timer);
       }

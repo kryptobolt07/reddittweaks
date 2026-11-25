@@ -33,6 +33,6 @@ Downloads use your browser's own download manager.
 - **Scripting**: to run on Reddit pages.
 - **Declarative net request**: to set the `Referer` header on two kinds of request that need it: signed-out profile search on Reddit, and creating a public raffle on RedditRaffler.
 - **Downloads**: for **Download media**.
-- **Site access**: Reddit, plus the services listed above.
+- **Site access**: Reddit, plus the services listed above. Turning on Visual search also asks for Reddit's image servers (i.redd.it, preview.redd.it, external-preview.redd.it), so the extension can read a post's picture when you search with it.
 
 Reddit Tweaks is an independent project and is not affiliated with Reddit.

@@ -1,3 +1,16 @@
+# Unreleased
+
+- **Filters keep your place:** changing or clearing a filter on a profile or community feed keeps Sort & filter where it was on screen, or goes back to it if you had scrolled past, instead of leaving you deep inside the unfiltered feed. A sparse profile filter no longer moves the page up and down while it loads.
+- **Profile search:** no Visual tab among a profile's search tabs; an image search started there opens the global Visual tab.
+- **Full-screen viewer on phones:** Previous and Next under the media, and swipes work over playing clips too. Reaching the end loads more results.
+- **Reddit's Media tab:** a full-screen button on every tile opens the same viewer, playing Reddit's own clip (up to 720p) from where the tile was.
+- **Press and hold to preview (touch):** on the Media and Visual tabs, holding a clip plays it muted until you lift your finger.
+- **Search with this image:** the lens also works on embedded media (using its still), reading a post's picture works in Firefox, and turning Visual search on also asks for access to Reddit's image servers. Back after the lens returns to where you were.
+- **Visual tab:** one image-search lens (the one in the search bar), and a clearer message while infini.wtf analyses a new picture.
+- **Firefox:** profiles no longer show "Public comments" network errors or the "blocking logged-out search" note; the signed-out comment stream Firefox can't load is skipped.
+- **Previews refused by the browser** (some phones block autoplay until the page is tapped) start on your next tap.
+- Not verified: press and hold on a real touch screen, Firefox, the audio leak after muting (not reproduced), and why the Visual tab sometimes stays grey beyond infini.wtf's slow analysis.
+
 # 0.66.0 preview
 
 - **Cleaner result tiles:** one symbol per clip (a play mark for videos, a GIF mark for GIFs) and icon-only *Find visually similar* and *View larger* buttons on hover. Community names, icons and titles use Reddit's own Media tab markup, and old-style community icons show on their community colour instead of looking blank. Loading uses Reddit's own placeholder row.

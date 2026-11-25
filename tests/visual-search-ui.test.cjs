@@ -888,9 +888,18 @@ test('the image-search button is the lens mark only, and phone Home gets it insi
   await controller.ready;
   await flush();
   const btn = D.querySelector('[data-rt-visual-control="upload"]');
-  assert.equal(btn.textContent.trim(), '');
-  assert.equal(btn.getAttribute('aria-label'), 'Search with an image');
-  assert.ok(btn.querySelector('svg[data-rt-icon="lens"]'));
+  if (controller.hasHeaderLens()) assert.equal(btn, null, 'the lens in the search bar is the only image-search button');
+  else {
+    assert.equal(btn.textContent.trim(), '');
+    assert.equal(btn.getAttribute('aria-label'), 'Search with an image');
+    assert.ok(btn.querySelector('svg[data-rt-icon="lens"]'));
+  }
+  D.querySelectorAll('[data-rt-ui="visual-search-trigger"]').forEach(node => node.remove());
+  for (const host of D.querySelectorAll('reddit-search-large, reddit-search-small')) host.shadowRoot?.querySelectorAll('[data-rt-ui="visual-search-trigger"]').forEach(node => node.remove());
+  controller.renderHost();
+  const fallback = D.querySelector('[data-rt-visual-control="upload"]');
+  assert.ok(fallback?.querySelector('svg[data-rt-icon="lens"]'), 'without the search bar lens the row keeps one');
+  assert.equal(fallback.getAttribute('aria-label'), 'Search with an image');
 
   const home = setupUi(t, {
     url: 'https://www.reddit.com/',
@@ -1001,4 +1010,139 @@ test('the header lens is drawn at document start, before visual-search.js has it
   controller.applySettings({ visualSearch: false });
   assert.equal(field.querySelector('[data-rt-ui="visual-search-trigger"]'), null, 'off removes it');
   assert.equal(W.sessionStorage.getItem('rt-visual-enabled-v1'), '0');
+});
+
+test('profile search keeps its own tabs: no Visual tab, and an image search started there goes to the global tab', async t => {
+  const html = searchHtml().replace(/\/search\/\?q=ice\+cream/g, '/user/example_user/search/?q=ice+cream');
+  const { D, controller } = setupUi(t, { url: 'https://www.reddit.com/user/example_user/search/?q=ice+cream&type=posts', html });
+  await controller.ready;
+  controller.sync();
+  assert.equal(D.querySelector('[data-rt-ui="visual-search-tab"]'), null);
+  assert.equal(D.querySelector('#search-results-page-tabgroup').shadowRoot.querySelector('[data-rt-ui="visual-search-slot"]'), null);
+});
+
+test('viewer on phones: swipes reported by the clip frame move between results, and a bottom bar has Previous and Next', async t => {
+  const counter = { fetches: 0 };
+  const { W, D, controller } = setupUi(t, { phone: true, settings: { visualSearch: true, visualClick: 'viewer' }, sendImpl: clipSend(counter) });
+  withFrames(W);
+  await controller.ready;
+  await flush();
+  inView(W, D);
+  controller.openLightbox(SAMPLE_ITEMS[1]);
+  const viewer = D.querySelector('dialog.rt-vs-viewer');
+  const bar = viewer.querySelector('.rt-vs-viewer-bar');
+  assert.equal(bar.hidden, false);
+  assert.equal(bar.querySelector('.rt-vs-viewer-bar-count').textContent, '2 / 2');
+  assert.equal(bar.querySelector('.rt-vs-viewer-bar-next').disabled, true, 'last result');
+  const frame = viewer.querySelector('iframe.rt-vs-viewer-frame');
+  frameSays(W, frame, { type: 'hello' });
+  frameSays(W, frame, { type: 'swipe', direction: 'previous' });
+  assert.equal(viewer.querySelector('.rt-vs-viewer-title').textContent, SAMPLE_ITEMS[0].title, 'a swipe over the clip moved back');
+  bar.querySelector('.rt-vs-viewer-bar-next').click();
+  assert.equal(viewer.querySelector('.rt-vs-viewer-title').textContent, SAMPLE_ITEMS[1].title);
+  const frame2 = viewer.querySelector('iframe.rt-vs-viewer-frame');
+  frameSays(W, frame2, { type: 'hello' });
+  frameSays(W, frame2, { type: 'swipe', direction: 'down' });
+  assert.equal(D.querySelector('dialog.rt-vs-viewer'), null, 'swipe down closes');
+  assert.match(read('visual-player.js'), /post\('swipe', \{ direction: dx < 0 \? 'next' : 'previous' \}\)/);
+});
+
+test('touch: pressing and holding a clip previews it while held; lifting stops it and is not a tap', async t => {
+  const counter = { fetches: 0 };
+  const { W, D, controller } = setupUi(t, { phone: true, settings: { visualSearch: true, videoStart: 'play' }, sendImpl: clipSend(counter) });
+  withFrames(W);
+  await controller.ready;
+  await flush();
+  inView(W, D);
+  const tile = D.querySelector('.rt-vs-tile[data-uuid="uuidTwo456"]');
+  const img = tile.querySelector('.rt-vs-media img');
+  const pointer = (type, target, x = 10) => target.dispatchEvent(new W.MouseEvent(type, { bubbles: true, composed: true, clientX: x, clientY: 10 }));
+  const down = target => { const e = new W.MouseEvent('pointerdown', { bubbles: true, composed: true, clientX: 10, clientY: 10 }); Object.defineProperty(e, 'pointerType', { value: 'touch' }); target.dispatchEvent(e); };
+  // A moving finger is a scroll.
+  down(img);
+  pointer('pointermove', D, 40);
+  await wait(350);
+  assert.equal(tile.querySelector('iframe'), null, 'a scroll starts nothing');
+  W.dispatchEvent(new W.MouseEvent('pointerup', { bubbles: true }));
+  // Holding still plays it.
+  down(img);
+  await wait(350);
+  assert.ok(tile.querySelector('iframe.rt-vs-frame'), 'held clip plays (even with Play only)');
+  W.dispatchEvent(new W.MouseEvent('pointerup', { bubbles: true }));
+  assert.equal(tile.querySelector('iframe'), null, 'lifting stops it');
+  let opened = false;
+  D.addEventListener('click', e => { if (e.target.closest?.('a')) { opened = !e.defaultPrevented; e.preventDefault(); } });
+  img.click();
+  assert.equal(opened, false, 'the click after a hold does not open the post');
+});
+
+test('Back after the post lens: the image search replaces the post entry instead of adding one', async t => {
+  const { W, controller } = setupUi(t, { url: 'https://www.reddit.com/search/?type=media&rt_visual=1&rt_vpost=pics/abc123' });
+  await controller.ready;
+  const before = W.history.length;
+  controller.commitUploadUuid('12345678-1234-4234-8234-123456789abc', {});
+  assert.equal(W.history.length, before, 'replaced, not pushed');
+  assert.match(W.location.search, /rt_vupload=12345678-1234-4234-8234-123456789abc/);
+  assert.doesNotMatch(W.location.search, /rt_vpost/);
+});
+
+test('lens on embedded media searches with the embed’s still, Reddit’s own copy first', async t => {
+  const html = `<!doctype html><html><body><main>
+    <shreddit-post id="t3_emb111" post-type="link" permalink="/r/videos/comments/emb111/a_video/" post-title="A video"><img slot="thumbnail" src="https://external-preview.redd.it/still.jpg?width=640&s=y"><div slot="post-media-container"><div style="position:relative"><shreddit-embed providername="YouTube" thumbnail-url="https://i.ytimg.com/vi/x/hqdefault.jpg"></shreddit-embed></div></div></shreddit-post>
+    <shreddit-post id="t3_emb222" post-type="link" permalink="/r/videos/comments/emb222/other/" post-title="Other"><div slot="post-media-container"><div style="position:relative"><shreddit-embed providername="Vimeo" thumbnail-url="https://i.vimeocdn.com/video/1.jpg"></shreddit-embed></div></div></shreddit-post>
+  </main></body></html>`;
+  const { D, W, controller } = setupUi(t, { url: 'https://www.reddit.com/r/videos/', html, settings: { visualSearch: true, visualSearchMediaButton: true } });
+  await controller.ready;
+  controller.sync();
+  const lenses = [...D.querySelectorAll('[data-rt-ui="visual-media-lens"]')];
+  assert.equal(lenses.length, 2);
+  D.addEventListener('click', e => { if (e.target.closest?.('a[data-rt-ui="visual-nav-link"]')) e.preventDefault(); });
+  lenses[0].click();
+  assert.equal(JSON.parse(W.sessionStorage.getItem('rt-visual-seed:videos/emb111')).fallbackImageUrl, 'https://external-preview.redd.it/still.jpg?width=640&s=y');
+  lenses[1].click();
+  assert.equal(JSON.parse(W.sessionStorage.getItem('rt-visual-seed:videos/emb222')).fallbackImageUrl, 'https://i.vimeocdn.com/video/1.jpg');
+});
+
+test('Reddit’s Media tab: a full-screen button opens the viewer with Reddit’s own MP4 playing in the page', async t => {
+  const pm = JSON.stringify({ playbackMp4s: { permutations: [
+    { source: { url: 'https://packaged-media.redd.it/a/pb/m2-res_360p.mp4?s=1', dimensions: { height: 360 } } },
+    { source: { url: 'https://packaged-media.redd.it/a/pb/m2-res_720p.mp4?s=2', dimensions: { height: 720 } } },
+    { source: { url: 'https://packaged-media.redd.it/a/pb/m2-res_1080p.mp4?s=3', dimensions: { height: 1080 } } },
+    { source: { url: 'https://evil.example/x.mp4', dimensions: { height: 480 } } }] } }).replace(/"/g, '&quot;');
+  const tile = (id, inner) => `<div data-id="search-media-post-unit"><search-telemetry-tracker data-faceplate-tracking-context="${JSON.stringify({ post: { id: 't3_' + id, title: 'Title ' + id } }).replace(/"/g, '&quot;')}"><a href="/r/pics/comments/${id}/t/"><div class="rounded-2">${inner}</div></a></search-telemetry-tracker></div>`;
+  const html = `<!doctype html><html><body><reddit-search-large></reddit-search-large><main><search-media-feed>
+    ${tile('vid111', `<shreddit-player player-type="search_results" poster="https://external-preview.redd.it/p.png?s=1" packaged-media-json="${pm}"></shreddit-player>`)}
+    ${tile('img222', '<img data-post-media-primary src="https://preview.redd.it/i.jpg?s=2" alt="An image">')}
+  </search-media-feed></main></body></html>`;
+  const { W, D, controller } = setupUi(t, { url: 'https://www.reddit.com/search/?q=dog&type=media', html });
+  await controller.ready;
+  inView(W, D);
+  W.HTMLElement.prototype.scrollIntoView = function () {};
+  controller.sync();
+  const buttons = D.querySelectorAll('[data-rt-ui="native-media-expand"]');
+  assert.equal(buttons.length, 2);
+  assert.equal(buttons[0].parentElement.dataset.id, 'search-media-post-unit', 'beside Reddit’s link, not inside it');
+  controller.sync();
+  assert.equal(D.querySelectorAll('[data-rt-ui="native-media-expand"]').length, 2, 'added once');
+  let cardClicks = 0;
+  D.querySelector('search-media-feed').addEventListener('click', () => cardClicks++);
+  buttons[0].click();
+  assert.equal(cardClicks, 0);
+  const viewer = D.querySelector('dialog.rt-vs-viewer');
+  const video = viewer.querySelector('video.rt-vs-viewer-video');
+  assert.equal(video.getAttribute('src'), 'https://packaged-media.redd.it/a/pb/m2-res_720p.mp4?s=2', 'the tallest MP4 up to 720p');
+  assert.equal(viewer.querySelector('.rt-vs-viewer-title').textContent, 'Title vid111');
+  assert.equal(viewer.querySelector('.rt-vs-viewer-count').textContent, '1 / 2');
+  assert.equal(viewer.querySelector('button[aria-label="Download"]').hidden, true);
+  D.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+  assert.equal(viewer.querySelector('video'), null);
+  assert.equal(viewer.querySelector('.rt-vs-viewer-img').getAttribute('src'), 'https://preview.redd.it/i.jpg?s=2');
+  // Open post hands the clip's moment to the post.
+  D.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+  let handed = null, navigated = '';
+  D.addEventListener('rt-visual-continue', e => { handed = e.detail; });
+  D.addEventListener('click', e => { const a = e.target.closest?.('a[data-rt-ui="visual-nav-link"]'); if (a) { e.preventDefault(); navigated = a.getAttribute('href'); } });
+  viewer.querySelector('.rt-vs-viewer-open').click();
+  assert.equal(handed.id, 'vid111');
+  assert.match(navigated, /\/r\/pics\/comments\/vid111\/t\/$/);
 });

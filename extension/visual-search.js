@@ -28,6 +28,8 @@
   const RETURN_RESTORE_MS = 900;
   const POST_SCROLL_WAIT_MS = 1200;
   const HOVER_PREVIEW_MS = 200;
+  // Touch: pressing and holding a clip plays it, muted, for as long as the finger stays down.
+  const HOLD_PREVIEW_MS = 300;
   const RETRY_CODES = new Set(['timeout', 'network-error']);
   const AUTO_PREVIEW_MS = 150;
   const DWELL_PREVIEW_MS = 600;
@@ -242,6 +244,51 @@
     }
   }
 
+  // Reddit's image hosts answer CORS only for https://www.reddit.com. Chrome's content-script fetch already goes out
+  // as the page; Firefox's goes out as the extension (and is refused) unless it uses the page's own fetch.
+  function pageFetch(url, init) {
+    try {
+      const page = typeof content !== 'undefined' ? content : null; // eslint-disable-line no-undef
+      if (page && page !== globalThis && typeof page.fetch === 'function') return page.fetch(url, init);
+    } catch {}
+    return fetch(url, init);
+  }
+
+  const NATIVE_MEDIA_TILE = '[data-id="search-media-post-unit"]';
+  const redditMedia = u => { try { const url = new URL(String(u || '').replace(/&amp;/gi, '&')); return url.protocol === 'https:' && /(^|\.)redd\.it$/i.test(url.hostname) ? url.href : ''; } catch { return ''; } };
+  // The tallest MP4 up to 720 p from Reddit's packaged-media-json (falls back to the largest one listed).
+  function packagedMp4(player) {
+    let list = [];
+    try { list = JSON.parse(player?.getAttribute?.('packaged-media-json') || '{}')?.playbackMp4s?.permutations || []; } catch {}
+    const usable = list.map(p => ({ url: redditMedia(p?.source?.url), h: Number(p?.source?.dimensions?.height) || 0 })).filter(p => p.url);
+    const fit = usable.filter(p => p.h <= 720).sort((a, b) => b.h - a.h)[0] || usable.sort((a, b) => b.h - a.h)[0];
+    return fit?.url || '';
+  }
+  function nativeTileTime(tile) {
+    const video = tile?.querySelector?.('shreddit-player, shreddit-player-2')?.shadowRoot?.querySelector?.('video');
+    return video && !video.paused && Number.isFinite(video.currentTime) ? video.currentTime : 0;
+  }
+  // One of Reddit's Media tab tiles as a viewer item.
+  function nativeMediaItem(tile) {
+    const link = tile?.querySelector?.('a[href*="/comments/"]');
+    const permalink = link?.getAttribute('href') || '';
+    const m = /^\/(r|user)\/([A-Za-z0-9_-]{2,24})\/comments\/([a-z0-9]{1,12})\//i.exec(permalink);
+    if (!m) return null;
+    const player = tile.querySelector('shreddit-player, shreddit-player-2');
+    const img = tile.querySelector('img[data-post-media-primary]') || tile.querySelector('img:not(.post-background-image-filter)');
+    const poster = redditMedia(player?.getAttribute('poster')) || redditMedia(img?.currentSrc || img?.getAttribute('src'));
+    const mp4 = player ? packagedMp4(player) : '';
+    if (!poster && !mp4) return null;
+    let context = null;
+    try { context = JSON.parse(tile.querySelector('[data-faceplate-tracking-context]')?.getAttribute('data-faceplate-tracking-context') || 'null'); } catch {}
+    const title = String(context?.post?.title || link.querySelector('faceplate-screen-reader-content')?.textContent || '').trim().slice(0, 300);
+    const subreddit = m[1].toLowerCase() === 'user' ? 'u_' + m[2] : m[2];
+    return { native: true, tile, uuid: 'native:' + m[3].toLowerCase(), postId: m[3].toLowerCase(), permalink, title, subreddit, src: poster, thumb: poster, mp4, isVideo: Boolean(mp4), isGif: false, fallbackImageUrl: poster };
+  }
+  function nativeMediaItems(feed) {
+    return [...(feed?.querySelectorAll?.(NATIVE_MEDIA_TILE) || [])].map(nativeMediaItem).filter(Boolean);
+  }
+
   function extractPostMedia(post) {
     const postId = String(post?.getAttribute?.('id') || post?.getAttribute?.('post-id') || '').replace(/^t3_/i, '').toLowerCase();
     const rawPermalink = post?.getAttribute?.('permalink') || '';
@@ -277,7 +324,21 @@
         if (isAllowedImg(candidate)) { fallbackImageUrl = candidate; break; }
       }
     }
-    return { postId, subreddit, title, fallbackImageUrl };
+    // Embedded media (YouTube, Vimeo, Streamable and others): infini.wtf only indexes Reddit-hosted media, so these are
+    // searched with their still. Reddit's own copy of it (external-preview.redd.it) first, then the provider's.
+    const embed = !fallbackImageUrl ? post?.querySelector?.('shreddit-embed') : null;
+    if (embed) {
+      const httpsImage = u => { try { const parsed = new URL(String(u || '').replace(/&amp;/gi, '&')); return parsed.protocol === 'https:' && !parsed.username && !parsed.password ? parsed.href : ''; } catch { return ''; } };
+      const lite = embed.querySelector?.('lite-youtube,lite-vimeo') || embed.shadowRoot?.querySelector?.('lite-youtube,lite-vimeo');
+      const candidates = [
+        ...[...(post.querySelectorAll?.('img[slot="thumbnail"],img[data-post-media-primary]') || [])].map(img => img.currentSrc || img.getAttribute('src') || ''),
+        ...['poster', 'thumbnail-url', 'thumbnail', 'preview-image', 'preview-url'].flatMap(name => [embed.getAttribute?.(name), lite?.getAttribute?.(name)]),
+        lite?.shadowRoot?.querySelector?.('img')?.getAttribute?.('src'),
+        /url\(['"]?(https:\/\/[^'"()\s]+)['"]?\)/.exec(lite?.getAttribute?.('style') || '')?.[1]
+      ].filter(Boolean);
+      fallbackImageUrl = candidates.find(isAllowedImg) || candidates.map(httpsImage).find(Boolean) || '';
+    }
+    return { postId, subreddit, title, fallbackImageUrl, embed: Boolean(embed) };
   }
 
   class VisualSearchController {
@@ -353,6 +414,13 @@
 
       this.onDocClick = event => this.handleDocClick(event);
       this.onDocPointerDown = event => this.handlePointerDown(event);
+      this.onHoldMove = event => {
+        const hold = this.hold;
+        if (hold && !hold.engaged && Math.hypot(event.clientX - hold.x, event.clientY - hold.y) > 10) this.endHold(false);
+      };
+      this.onHoldEnd = event => this.endHold(event.type === 'pointerup');
+      // A held clip is a preview, not a long press: no link menu or text selection.
+      this.onHoldMenu = event => { if (this.hold) event.preventDefault(); };
       this.onDocKeydown = event => this.handleKeydown(event);
       this.onDocOver = event => this.handlePointerOver(event);
       this.onDocOut = event => this.handlePointerOut(event);
@@ -391,6 +459,9 @@
         : null;
 
       document.addEventListener('pointerdown', this.onDocPointerDown, true);
+      document.addEventListener('pointermove', this.onHoldMove, true);
+      for (const type of ['pointerup', 'pointercancel']) window.addEventListener(type, this.onHoldEnd, true);
+      document.addEventListener('contextmenu', this.onHoldMenu, true);
       document.addEventListener('click', this.onDocClick, true);
       document.addEventListener('keydown', this.onDocKeydown, true);
       document.addEventListener('mouseover', this.onDocOver, true);
@@ -625,6 +696,7 @@
       this.syncHeaderTriggers();
       if (this.postMenuEnabled) this.syncPostMenus();
       if (this.mediaLensEnabled) this.syncMediaLenses();
+      this.syncNativeMediaViewer();
     }
 
     notifyOtherModules() {
@@ -1224,7 +1296,7 @@
             this.renderHost();
           }
           try {
-            const resp = await fetch(fileOrUrl, { credentials: 'omit' });
+            const resp = await pageFetch(fileOrUrl, { credentials: 'omit' });
             if (resp.ok) {
               const blob = await resp.blob();
               const prep = await this.prepareImage(blob);
@@ -1337,6 +1409,11 @@
           return;
         }
         if (res?.ok) {
+          // A new picture can take infini.wtf up to half a minute: say so instead of an unexplained wait.
+          if (this.state.pollAttempt === 5 && this.state.status === 'embedding') {
+            this.state.uploadStatusText = 'Still analysing the picture. This can take up to half a minute…';
+            this.renderHost();
+          }
           this.schedulePoll(myGen);
           return;
         }
@@ -1361,13 +1438,15 @@
     commitUploadUuid(uuid, filters) {
       const cur = Model.parseVisualUrl(location.href);
       const next = Model.buildVisualUrl(location.href, {
-        basePath: cur?.scope?.path || '/search/',
+        basePath: cur?.scope?.surface === 'user' ? '/search/' : cur?.scope?.path || '/search/',
         q: this.currentQuery(),
         uploadUuid: uuid,
         filters,
         cleanNav: true
       });
-      if (cur?.kind === 'pending-upload') this.replaceVisualUrl(next);
+      // A post's own image (lens or ⋯ menu) replaces that post's search entry: Back then returns to where the search
+      // started, instead of to the post entry, which would upload and move forward again.
+      if (cur?.kind === 'pending-upload' || cur?.kind === 'post') this.replaceVisualUrl(next);
       else this.pushVisualUrl(next);
     }
 
@@ -1483,6 +1562,12 @@
       }
     }
 
+    hasHeaderLens() {
+      const lens = '[data-rt-ui="visual-search-trigger"]';
+      if (document.querySelector(lens)) return true;
+      return [...document.querySelectorAll('reddit-search-large, reddit-search-small')].some(host => host.shadowRoot?.querySelector?.(lens));
+    }
+
     buildControls(parsed) {
       const bar = make('div', 'rt-vs-controls');
       bar.dataset.rtUi = 'visual-controls';
@@ -1501,7 +1586,8 @@
         e.stopPropagation();
         this.openUploadUi(uploadBtn);
       });
-      bar.append(uploadBtn);
+      // The lens in Reddit's search bar opens the same image search: only when it is missing does the row get one.
+      if (!this.hasHeaderLens()) bar.append(uploadBtn);
 
       const supportsFilter = parsed.kind !== 'view' && parsed.kind !== 'post';
       if (supportsFilter) {
@@ -1618,6 +1704,8 @@
           : 'Visually similar results';
         const subline = parsed.kind === 'view'
           ? 'infini.wtf similarity matches do not apply Safe/Media/Time filters.'
+          : ['hashing', 'uploading', 'embedding'].includes(st.status) ? 'Not in infini.wtf’s index yet: searching with its picture'
+          : st.status === 'ready' || st.status === 'empty' ? 'Searched with this post’s picture'
           : 'Checking infini.wtf index…';
         copy.append(make('span', 'rt-vs-banner-title', heading), make('span', 'rt-vs-banner-sub', subline));
         lead.append(copy);
@@ -1836,6 +1924,7 @@
     }
 
     findSimilar(item) {
+      if (item?.native) { this.closeLightbox({ restoreFocus: false }); this.searchFromPost(item); return; }
       this.closeLightbox();
       const dest = Model.buildVisualUrl(location.href, {
         basePath: '/search/',
@@ -2439,7 +2528,19 @@
             if (this.hoveredPreview !== entry) return;
             if (msg.type === 'unavailable') { this.dropPlayer(player); entry.player = null; viaBlob(); return; }
             if (msg.type === 'playing' || msg.type === 'time' && !msg.paused) media.dataset.previewing = 'playing';
-            else if (msg.type === 'error' || msg.type === 'blocked') this.previewFailed(entry);
+            else if (msg.type === 'error' || msg.type === 'blocked') {
+              this.previewFailed(entry);
+              // Refused autoplay (some phone browsers until the page has had a tap): try again on the next tap.
+              if (msg.type === 'blocked' && !this.activationRetry) {
+                const retry = () => {
+                  window.removeEventListener('pointerup', retry, true);
+                  this.activationRetry = null;
+                  if (!this.dead) setTimeout(() => this.settlePreviews(), 0);
+                };
+                this.activationRetry = retry;
+                window.addEventListener('pointerup', retry, true);
+              }
+            }
           }
         });
         if (!player) { viaBlob(); return; }
@@ -2517,6 +2618,7 @@
       if (!cur) return;
       this.lightbox = null;
       if (cur.player) this.dropPlayer(cur.player);
+      if (cur.video) { cur.video.pause(); cur.video.removeAttribute('src'); cur.video.load?.(); }
       document.removeEventListener('keydown', cur.onKey, true);
       try { cur.dialog?.close?.(); } catch {}
       cur.dialog?.remove();
@@ -2539,12 +2641,13 @@
 
     // Full-screen viewer: the media as large as the screen allows, the community and title above it, and the result's
     // actions; ← / → (or a swipe) move through the results. Clips stream with controls from the tile's moment.
-    openLightbox(item, returnFocus = null) {
-      const items = this.state?.items?.length ? this.state.items : [item];
+    openLightbox(item, returnFocus = null, { list = null } = {}) {
+      // `list` (Reddit's Media tab) re-reads the page's tiles: Reddit adds more as the page behind the viewer scrolls.
+      let items = list ? list() : this.state?.items?.length ? this.state.items : [item];
       let index = Math.max(0, items.findIndex(it => it.uuid === item.uuid));
       if (items[index]?.uuid !== item.uuid) index = 0;
       const startMedia = [...(this.host?.querySelectorAll?.('.rt-vs-tile') || [])].find(tile => tile.dataset.uuid === item.uuid)?.querySelector('.rt-vs-media');
-      const startTime = startMedia ? this.previewTime(startMedia) : 0;
+      const startTime = item.native ? nativeTileTime(item.tile) : startMedia ? this.previewTime(startMedia) : 0;
       this.stopVideoPreview();
       this.closeLightbox({ restoreFocus: false });
 
@@ -2575,7 +2678,8 @@
       openBtn.addEventListener('click', e => {
         e.stopPropagation();
         const st = this.lightbox;
-        this.openResultPost(current(), { time: st?.player?.time ?? 0, source: 'viewer', muted: st?.player ? st.player.muted !== false : true });
+        const video = st?.video;
+        this.openResultPost(current(), video ? { time: video.currentTime || 0, source: 'viewer', muted: video.muted } : { time: st?.player?.time ?? 0, source: 'viewer', muted: st?.player ? st.player.muted !== false : true });
       });
       const closeBtn = tool('close', 'Close', () => this.closeLightbox());
       tools.append(simBtn, dlBtn, openBtn, closeBtn);
@@ -2585,11 +2689,28 @@
       const prev = tool('caret', 'Previous', () => go(-1), 'rt-vs-viewer-nav rt-vs-viewer-prev');
       const next = tool('caret', 'Next', () => go(1), 'rt-vs-viewer-nav rt-vs-viewer-next');
       const count = make('span', 'rt-vs-viewer-count');
-      dialog.append(stage, top, prev, next, count);
+      // Phones: the side arrows would sit on the media, so Previous and Next live in a bar under it with the count.
+      const bar = make('div', 'rt-vs-viewer-bar');
+      const barPrev = tool('caret', 'Previous', () => go(-1), 'rt-vs-viewer-btn rt-vs-viewer-bar-prev');
+      const barNext = tool('caret', 'Next', () => go(1), 'rt-vs-viewer-btn rt-vs-viewer-bar-next');
+      const barCount = make('span', 'rt-vs-viewer-bar-count');
+      bar.append(barPrev, barCount, barNext);
+      dialog.append(stage, top, prev, next, count, bar);
 
       const st = { dialog, returnFocus, player: null, onKey: null };
+      const syncNav = () => {
+        count.textContent = items.length > 1 ? (index + 1) + ' / ' + items.length : '';
+        prev.hidden = items.length < 2 || index === 0;
+        next.hidden = items.length < 2 || index === items.length - 1;
+        barPrev.disabled = prev.hidden;
+        barNext.disabled = next.hidden;
+        barCount.textContent = count.textContent;
+        bar.hidden = items.length < 2;
+      };
       const show = (it, time = 0) => {
         if (st.player) { this.dropPlayer(st.player); st.player = null; }
+        if (st.video) { st.video.pause(); st.video.removeAttribute('src'); st.video.load?.(); st.video = null; }
+        dlBtn.hidden = Boolean(it.native);
         titleEl.textContent = it.title || 'Untitled Reddit post';
         const isUser = it.subreddit?.startsWith('u_');
         subEl.replaceChildren();
@@ -2598,9 +2719,7 @@
           subEl.append(make('span', '', isUser ? 'u/' + it.subreddit.slice(2) : 'r/' + it.subreddit));
           subEl.href = isUser ? '/user/' + encodeURIComponent(it.subreddit.slice(2)) + '/' : '/r/' + encodeURIComponent(it.subreddit) + '/';
         } else subEl.removeAttribute('href');
-        count.textContent = items.length > 1 ? (index + 1) + ' / ' + items.length : '';
-        prev.hidden = items.length < 2 || index === 0;
-        next.hidden = items.length < 2 || index === items.length - 1;
+        syncNav();
         stage.replaceChildren();
         const poster = make('img', 'rt-vs-viewer-img');
         poster.src = it.src || it.thumb || '';
@@ -2608,13 +2727,42 @@
         poster.referrerPolicy = 'no-referrer';
         poster.decoding = 'async';
         stage.append(poster);
-        if (it.videoUrl) {
+        if (it.native) {
+          // Reddit's own Media tab: its MP4 plays in the page (Reddit's media hosts are allowed there); the tile behind
+          // the viewer scrolls into place so Reddit keeps loading more and Close returns to it.
+          if (it.tile?.isConnected) {
+            try { it.tile.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch {}
+            for (const v of it.tile.querySelectorAll('shreddit-player, shreddit-player-2')) v.shadowRoot?.querySelector('video')?.pause?.();
+          }
+          if (it.mp4) {
+            const video = make('video', 'rt-vs-viewer-video');
+            video.controls = true;
+            video.autoplay = true;
+            video.loop = true;
+            video.playsInline = true;
+            video.poster = it.src || '';
+            video.muted = !(this.clickChoice.clickAudio === 'unmute');
+            video.src = it.mp4;
+            video.addEventListener('loadedmetadata', () => { if (time > 0 && time < (video.duration || Infinity)) video.currentTime = time; }, { once: true });
+            video.addEventListener('playing', () => { stage.dataset.playing = 'true'; });
+            delete stage.dataset.playing;
+            st.video = video;
+            stage.append(video);
+            video.play?.().catch(() => { video.muted = true; video.play?.().catch(() => {}); });
+          }
+        } else if (it.videoUrl) {
           const sound = this.clickChoice.clickAudio === 'unmute' && !it.isGif;
           const player = this.makePlayerFrame(it.videoUrl, {
             mode: 'viewer', time, sound,
             onMessage: msg => {
               if (this.lightbox !== st || st.player !== player) return;
               if (msg.type === 'playing' || msg.type === 'time') stage.dataset.playing = 'true';
+              if (msg.type === 'swipe') {
+                if (msg.direction === 'next') go(1);
+                else if (msg.direction === 'previous') go(-1);
+                else if (msg.direction === 'down') this.closeLightbox();
+                return;
+              }
               if (msg.type === 'unavailable' || msg.type === 'error') { this.dropPlayer(player); st.player = null; this.viewerBlob(stage, it, st); }
             }
           });
@@ -2626,10 +2774,19 @@
         }
       };
       const go = step => {
+        if (list) {
+          const uuid = items[index]?.uuid;
+          items = list();
+          index = Math.max(0, items.findIndex(it => it.uuid === uuid));
+        }
         const nextIndex = index + step;
         if (nextIndex < 0 || nextIndex >= items.length) return;
         index = nextIndex;
         show(items[index]);
+        // Near the end of what is loaded, the grid's next page loads too (results are appended to this same list).
+        if (items === this.state?.items && index >= items.length - 3) {
+          Promise.resolve(this.loadMore()).then(() => { if (this.lightbox === st) syncNav(); }, () => {});
+        }
       };
       st.onKey = e => {
         if (this.lightbox !== st) return;
@@ -2698,6 +2855,12 @@
       if (!tg) return;
       const scope = parsed?.scope || Model.searchScopeFromUrl(location.href);
       if (!scope) return;
+      // Profile search is Reddit Tweaks' own results (Posts, Media, Comments); a Visual tab there would leave them for
+      // infini.wtf matches that are not limited to the profile. Image searches started there go to the global tab.
+      if (scope.surface === 'user' && !parsed?.active) {
+        if (tg.querySelector(':scope > [data-rt-ui="visual-search-tab"]')) this.teardownSearchTabs();
+        return;
+      }
 
       const active = Boolean(parsed?.active);
 
@@ -3149,9 +3312,45 @@
       if (this.uploadPopover && !path.includes(this.uploadPopover.panel) && !path.includes(this.uploadPopover.anchor)) {
         this.closeUploadPopover();
       }
+      if (event.pointerType === 'touch' || event.pointerType === 'pen') this.startHold(event, path);
+    }
+
+    // Press and hold a clip in the grid (touch): it plays, muted, while held and stops when the finger lifts. A clip
+    // that was already previewing keeps playing afterwards. Moving the finger first (a scroll) cancels the hold.
+    startHold(event, path) {
+      this.endHold(false);
+      if (event.button > 0 || event.isPrimary === false) return;
+      const media = path.find(node => node?.classList?.contains?.('rt-vs-media'));
+      if (!media?.dataset?.videoUrl || !this.host?.contains(media) || path.some(node => node?.classList?.contains?.('rt-vs-overlay-actions') || node?.classList?.contains?.('rt-vs-more-btn'))) return;
+      const hold = { media, x: event.clientX, y: event.clientY, engaged: false, keep: this.hoveredPreview?.media === media, timer: 0 };
+      hold.timer = setTimeout(() => {
+        if (this.hold !== hold || this.dead || !media.isConnected) return;
+        hold.engaged = true;
+        media.dataset.held = 'true';
+        if (this.hoveredPreview?.media !== media) this.startPreview(media, { manual: true });
+      }, HOLD_PREVIEW_MS);
+      this.hold = hold;
+    }
+
+    endHold(released) {
+      const hold = this.hold;
+      if (!hold) return;
+      this.hold = null;
+      clearTimeout(hold.timer);
+      if (!hold.engaged) return;
+      delete hold.media.dataset.held;
+      // The lift that ends a hold is not a tap on the result.
+      if (released) this.suppressClickUntil = performance.now() + 500;
+      if (!hold.keep && this.hoveredPreview?.media === hold.media) this.stopVideoPreview();
     }
 
     handleDocClick(event) {
+      if (this.enabled && performance.now() < (this.suppressClickUntil || 0) && this.host && event.composedPath?.().includes(this.host)) {
+        this.suppressClickUntil = 0;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
       if (!this.enabled || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const path = event.composedPath?.() || [];
       const link = path.find(node => node?.tagName === 'A' && node.hasAttribute?.('href'));
@@ -3358,13 +3557,59 @@
         const box = slot?.firstElementChild;
         const existing = box?.querySelector?.(':scope > [data-rt-ui="visual-media-lens"]');
         const blurred = Boolean(post.querySelector('shreddit-blurred-container[blurred]'));
-        if (!SUPPORTED_POST_TYPES.has(type) || !box || blurred) { existing?.remove(); continue; }
+        const embedded = Boolean(slot?.querySelector('shreddit-embed'));
+        if (!(SUPPORTED_POST_TYPES.has(type) || embedded) || !box || blurred) { existing?.remove(); continue; }
         if (existing) continue;
         const media = extractPostMedia(post);
         if (!media.postId || !media.subreddit || !media.fallbackImageUrl) continue;
         if (getComputedStyle(box).position === 'static') continue;
         box.append(this.buildMediaLens(post));
       }
+    }
+
+    // Search with a post's picture (the lens on a post, or a tile on Reddit's Media tab): the post is looked up on
+    // infini.wtf, and when it isn't indexed its picture is uploaded as an image search.
+    searchFromPost(media) {
+      if (!media?.postId || !media.subreddit || !media.fallbackImageUrl) return;
+      this.savePostSeed({ postId: media.postId, subreddit: media.subreddit, title: media.title || '', fallbackImageUrl: media.fallbackImageUrl, autoUpload: true });
+      const dest = Model.buildVisualUrl(location.href, {
+        basePath: '/search/',
+        q: '',
+        postSeed: { subreddit: media.subreddit, postId: media.postId },
+        cleanNav: true
+      });
+      this.navigateUrl(dest.href);
+    }
+
+    // ---- Reddit's own Media tab: a full-screen button on each tile opens the same viewer ----------------------
+
+    syncNativeMediaViewer() {
+      const feed = document.querySelector('search-media-feed');
+      if (!feed || Model.parseVisualUrl(location.href)?.active) return;
+      for (const tile of feed.querySelectorAll(NATIVE_MEDIA_TILE)) {
+        if (tile.querySelector(':scope [data-rt-ui="native-media-expand"]')) continue;
+        if (!nativeMediaItem(tile)) continue;
+        const btn = make('button', 'rt-vs-icon-btn rt-vs-native-expand');
+        btn.type = 'button';
+        btn.dataset.rtUi = 'native-media-expand';
+        btn.title = 'View larger';
+        btn.setAttribute('aria-label', 'View larger');
+        btn.append(icon('expand', 16));
+        // Reddit opens the post on any press inside its tile: keep the press and the click to ourselves.
+        for (const type of ['pointerdown', 'mousedown', 'touchstart']) btn.addEventListener(type, e => e.stopPropagation(), { passive: true });
+        btn.addEventListener('click', e => {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          const item = nativeMediaItem(tile);
+          if (item) this.openLightbox(item, btn, { list: () => nativeMediaItems(feed) });
+        });
+        // On the tile itself, beside Reddit's link rather than inside it (most tiles are one link around everything).
+        tile.append(btn);
+      }
+    }
+
+    teardownNativeMediaViewer() {
+      for (const btn of document.querySelectorAll('[data-rt-ui="native-media-expand"]')) btn.remove();
     }
 
     buildMediaLens(post) {
@@ -3379,16 +3624,7 @@
       btn.addEventListener('click', e => {
         e.preventDefault();
         e.stopImmediatePropagation();
-        const media = extractPostMedia(post);
-        if (!media.postId || !media.subreddit || !media.fallbackImageUrl) return;
-        this.savePostSeed({ ...media, autoUpload: true });
-        const dest = Model.buildVisualUrl(location.href, {
-          basePath: '/search/',
-          q: '',
-          postSeed: { subreddit: media.subreddit, postId: media.postId },
-          cleanNav: true
-        });
-        this.navigateUrl(dest.href);
+        this.searchFromPost(extractPostMedia(post));
       });
       return btn;
     }
@@ -3475,6 +3711,7 @@
       this.teardownHeaderTriggers();
       this.teardownPostMenus();
       this.teardownMediaLenses();
+      this.teardownNativeMediaViewer();
       this.parks.clear();
       this.urlParks.clear();
       for (const objUrl of this.videoBlobs.values()) URL.revokeObjectURL(objUrl);
@@ -3501,6 +3738,10 @@
       try { storage?.onChanged?.removeListener(this.onStorage); } catch {}
       try { runtime?.onMessage?.removeListener(this.onSettingsMsg); } catch {}
       document.removeEventListener('pointerdown', this.onDocPointerDown, true);
+      document.removeEventListener('pointermove', this.onHoldMove, true);
+      for (const type of ['pointerup', 'pointercancel']) window.removeEventListener(type, this.onHoldEnd, true);
+      document.removeEventListener('contextmenu', this.onHoldMenu, true);
+      this.endHold(false);
       document.removeEventListener('click', this.onDocClick, true);
       document.removeEventListener('keydown', this.onDocKeydown, true);
       document.removeEventListener('mouseover', this.onDocOver, true);

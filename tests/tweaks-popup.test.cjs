@@ -634,7 +634,7 @@ test('Visual Search defaults off, asks for infini.wtf access when turned on, and
 
   toggle.checked=true;toggle.dispatchEvent(new p.w.Event('change',{bubbles:true}));await settle();
   assert.equal(permRequests,1,'turning it on asks for access (the browser prompts only when it is missing)');
-  assert.deepEqual([...asked.origins],['https://infini.wtf/*','https://video.infini.wtf/*']);
+  assert.deepEqual([...asked.origins],['https://infini.wtf/*','https://video.infini.wtf/*','https://i.redd.it/*','https://preview.redd.it/*','https://external-preview.redd.it/*']);
   assert.equal(toggle.checked,true);
   assert.equal(p.state['rt-settings-v1'].visualSearch,true);
   assert.equal(postMenuRow.hidden,false);

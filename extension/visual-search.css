@@ -1030,18 +1030,64 @@ dialog.rt-vs-viewer::backdrop {
   pointer-events: none;
 }
 
-/* Phones: full-bleed media; arrows give way to swipes; the actions stay in the top bar. */
+/* Previous / Next under the media on phones (hidden on wider screens, where the side arrows show). */
+.rt-vs-viewer-bar {
+  display: none;
+}
+
+/* Phones: full-bleed media; swipes and the bottom bar move between results; the actions stay in the top bar. */
 @media (max-width: 767.98px) {
   .rt-vs-viewer-stage {
-    inset: 56px 0 0;
-    padding: 0 0 28px;
+    inset: 56px 0 64px;
+    padding: 0;
   }
 
   .rt-vs-viewer-frame,
   .rt-vs-viewer-video {
-    inset: 0 0 28px;
+    inset: 0;
     width: 100%;
-    height: calc(100% - 28px);
+    height: 100%;
+  }
+
+  .rt-vs-viewer-count {
+    display: none;
+  }
+
+  .rt-vs-viewer-bar:not([hidden]) {
+    position: absolute;
+    inset: auto 0 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 64px;
+    padding: 0 16px max(12px, env(safe-area-inset-bottom));
+    padding-top: 12px;
+    box-sizing: border-box;
+  }
+
+  .rt-vs-viewer-bar .rt-vs-viewer-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  .rt-vs-viewer-bar .rt-vs-viewer-btn:disabled {
+    opacity: .35;
+    cursor: default;
+  }
+
+  .rt-vs-viewer-bar-prev svg {
+    transform: rotate(90deg);
+  }
+
+  .rt-vs-viewer-bar-next svg {
+    transform: rotate(-90deg);
+  }
+
+  .rt-vs-viewer-bar-count {
+    font-size: 14px;
+    line-height: 20px;
+    color: rgba(255, 255, 255, .75);
   }
 
   .rt-vs-viewer-top {
@@ -1144,5 +1190,50 @@ dialog.rt-vs-viewer::backdrop {
 @media (hover: none), (pointer: coarse) {
   .rt-vs-media-lens {
     opacity: .9;
+  }
+}
+
+/* Touch: a clip can be pressed and held to preview it, so the long press must not select text or open the link menu. */
+@media (hover: none) {
+  [data-rt-ui="visual-search"] .rt-vs-media {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+/* Reddit's own Media tab: full screen from a button on the media (top right), on hover with a mouse, always on touch. */
+[data-id="search-media-post-unit"]:has(> .rt-vs-native-expand) {
+  position: relative;
+}
+
+[data-id="search-media-post-unit"] .rt-vs-native-expand {
+  position: absolute;
+  top: 8px;
+  inset-inline-end: 8px;
+  z-index: 3;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+[data-id="search-media-post-unit"]:hover .rt-vs-native-expand,
+[data-id="search-media-post-unit"] .rt-vs-native-expand:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none), (pointer: coarse) {
+  [data-id="search-media-post-unit"] .rt-vs-native-expand {
+    opacity: .9;
+    pointer-events: auto;
+  }
+
+  /* Press and hold previews a clip here too, so the long press must not select text or open the link menu. */
+  [data-id="search-media-post-unit"] shreddit-player,
+  [data-id="search-media-post-unit"] shreddit-player-2 {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
 }
