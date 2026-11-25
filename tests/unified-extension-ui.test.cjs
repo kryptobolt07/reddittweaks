@@ -1062,3 +1062,26 @@ test('message-only filters neither apply nor show on People: no sender picker, n
   await p.click('[data-scope="messages"]');
   assert.equal(c.filtersActive(),true,'the same date range counts in Messages');
 });
+
+test('results added above the viewport by any rebuild keep the row on screen in place',async t=>{
+  const p=await setup(t,{large:true}),c=p.control;await p.search('coffee');
+  assert.ok(c.items.length>=8 && c.savedHits.length>=4,'enough results: '+c.items.length);
+  const key=c.items[Math.floor(c.items.length/2)].key;c.renderWindow(false,c.items.find(item=>item.key===key).offset+7);
+  const before=c.captureViewport();
+  // New matches that sort first arrive (as global search, a summary or an opened room adds them) and the list is
+  // rebuilt by a path that does not restore the viewport itself.
+  const newest=Math.max(...c.savedHits.map(hit=>hit.timestamp || 0));
+  c.savedHits=[...c.savedHits.slice(0,4).map((hit,i)=>({...hit,id:hit.id+'-new'+i,timestamp:newest+1000+i})),...c.savedHits];
+  c.makeItems();c.renderWindow();
+  const after=c.captureViewport();
+  assert.equal(after.key,before.key,'same row at the top');assert.equal(after.within,before.within,'at the same offset');
+  assert.ok(after.top>before.top,'the list moved down by what was added above');
+});
+
+test('a row re-keyed by new details keeps its measured height as the estimate',async t=>{
+  const p=await setup(t,{large:true}),c=p.control;await p.search('coffee');
+  const item=c.items.find(entry=>entry.kind==='message');c.messageHeights.set(item.renderKey,137);c.keyHeights=new Map([[item.key,137]]);c.itemsStamp='';c.makeItems();
+  assert.equal(c.items.find(entry=>entry.key===item.key).height,137);
+  c.messageHeights.clear();c.itemsStamp='';c.makeItems();
+  assert.equal(c.items.find(entry=>entry.key===item.key).height,137,'not reset to the generic estimate');
+});
