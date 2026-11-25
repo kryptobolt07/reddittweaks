@@ -273,9 +273,10 @@
     }
     // Index ranges a date-bounded scan needs: the matching slice of the sorted prefix, then the unsorted tail.
     // compactTail() folds a long tail back in; call it before reading the column arrays.
-    compactTail(){
-      const threshold=Math.max(2048,this.count>>3);
-      if(this.count-this.sortedCount>threshold || this.count-this.liveCount>threshold)this.sortDescending();
+    compactTail({onlyDeleted=false}={}){
+      const deletedThreshold=Math.max(2048,this.count>>3);
+      const tailThreshold=Math.max(8192,this.count>>2);
+      if(this.count-this.liveCount>deletedThreshold || !onlyDeleted && this.count-this.sortedCount>tailThreshold)this.sortDescending();
     }
     timeRanges(start,end){
       const [lo,hi]=descendingTimeBounds(this.t,this.sortedCount,start,end);
@@ -1327,6 +1328,45 @@
       };
     }
 
+    _senderFilter(proj,owner,plan,directory){
+      if(!plan.needsSenderInfo)return {senderInfos:null,senderMask:null};
+      const senderCount=proj.senderIdByIdx.length;
+      const senderInfos=new Array(senderCount);
+      const senderMask=(plan.fromMode!=='all' || plan.anySenders)?new Uint8Array(senderCount):null;
+      if(!plan.needsSenderIdentity){
+        const selfInfo={self:true,sender:owner,author:'You',aliases:[]};
+        const otherInfo={self:false,sender:'',author:'',aliases:[]};
+        for(let s=0;s<senderCount;s++){
+          const self=proj.senderIdByIdx[s]===owner;
+          senderInfos[s]=self?selfInfo:otherInfo;
+          if(senderMask)senderMask[s]=(plan.fromMode==='me'?self:!self)?1:0;
+        }
+        return {senderInfos,senderMask};
+      }
+      for(let s=0;s<senderCount;s++){
+        const sid=proj.senderIdByIdx[s];
+        const cached=proj.people.get(sid) || {},known=directory?.identities?.[sid] || {};
+        const person=mergeIdentity(cached,{...known,id:sid});
+        const self=sid===owner;
+        const info={self,sender:sid,author:self?'You':person.name || sid,aliases:person.aliases || []};
+        senderInfos[s]=info;
+        if(senderMask){
+          let ok=true;
+          if(plan.fromMode==='me' && !self || plan.fromMode==='them' && self)ok=false;
+          if(ok && plan.anySenders){
+            ok=plan.anySenders.some(wanted=>{
+              if(wanted==='me')return self;
+              if(wanted==='them')return !self;
+              if(self)return false;
+              return RCSCore.matches(info.author || info.sender,wanted) || info.aliases.some(alias=>RCSCore.matches(alias,wanted));
+            });
+          }
+          senderMask[s]=ok?1:0;
+        }
+      }
+      return {senderInfos,senderMask};
+    }
+
     async searchCount(owner,{query='',roomId,roomIds,dates={},from='all',wholeWord=false,minTimeExclusive=-Infinity,stopAt=0,committed=true}={},directory) {
       if(!ownerOK(owner))throw Error('Invalid account');
       if(typeof query!=='string' || query.length>1000 || !['all','me','them'].includes(from) || roomIds!==undefined && (!Array.isArray(roomIds) || roomIds.some(id=>typeof id!=='string' || !id || id.length>1000)))throw Error('Invalid message query');
@@ -1361,34 +1401,11 @@
         for(const id of roomIds){const ord=proj.roomOrdById.get(id);if(ord!==undefined)roomSet.add(ord);}
         if(!roomSet.size)return {certified:0};
       }
-      const senderCount=proj.senderIdByIdx.length;
-      const senderInfos=new Array(senderCount);
-      const senderMask=(plan.fromMode!=='all' || plan.anySenders)?new Uint8Array(senderCount):null;
-      for(let s=0;s<senderCount;s++){
-        const sid=proj.senderIdByIdx[s];
-        const cached=proj.people.get(sid) || {},known=directory?.identities?.[sid] || {};
-        const person=mergeIdentity(cached,{...known,id:sid});
-        const self=sid===owner;
-        const info={self,sender:sid,author:self?'You':person.name || sid,aliases:person.aliases || []};
-        senderInfos[s]=info;
-        if(senderMask){
-          let ok=true;
-          if(plan.fromMode==='me' && !self || plan.fromMode==='them' && self)ok=false;
-          if(ok && plan.anySenders){
-            ok=plan.anySenders.some(wanted=>{
-              if(wanted==='me')return self;
-              if(wanted==='them')return !self;
-              if(self)return false;
-              return RCSCore.matches(info.author || info.sender,wanted) || info.aliases.some(alias=>RCSCore.matches(alias,wanted));
-            });
-          }
-          senderMask[s]=ok?1:0;
-        }
-      }
-      proj.compactTail();
-      const {t,room,senderIdx,flags,folded,count,ids}=proj;
+      const {senderInfos,senderMask}=this._senderFilter(proj,owner,plan,directory);
       const {start:tStart,end:tEnd,active:timeActive}=plan.timeRange;
       const hasMin=Number.isFinite(minTimeExclusive);
+      proj.compactTail({onlyDeleted:!(timeActive || hasMin)});
+      const {t,room,senderIdx,flags,folded,count,ids}=proj;
       const effStart=hasMin?Math.max(tStart,minTimeExclusive):tStart;
       const needles=plan.requiredNeedles,needleCount=needles.length;
       const reqMask=plan.requiredMediaMask;
@@ -1413,7 +1430,7 @@
           for(let k=0;k<needleCount;k++){const nd=needles[k];if(!wordAt(text,nd.needle,nd.bounded)){hit=false;break;}}
           if(!hit)continue;
         }
-        if(matchFinal(text,ti,fi,senderInfos[s])){
+        if(matchFinal(text,ti,fi,senderInfos?senderInfos[s]:null)){
           certified++;
           if(stopAt>0 && certified>=stopAt)break scan;
         }
@@ -1473,47 +1490,37 @@
         for(const id of roomIds){const ord=proj.roomOrdById.get(id);if(ord!==undefined)roomSet.add(ord);}
       }
 
-      // Pre-resolve every distinct sender ONCE for this query.
-      const senderCount=proj.senderIdByIdx.length;
-      const senderInfos=new Array(senderCount);
-      const senderMask=(plan.fromMode!=='all' || plan.anySenders)?new Uint8Array(senderCount):null;
-      for(let s=0;s<senderCount;s++){
-        const sid=proj.senderIdByIdx[s];
-        const cached=proj.people.get(sid) || {},known=directory?.identities?.[sid] || {};
-        const person=mergeIdentity(cached,{...known,id:sid});
-        const self=sid===owner;
-        const info={self,sender:sid,author:self?'You':person.name || sid,aliases:person.aliases || []};
-        senderInfos[s]=info;
-        if(senderMask){
-          let ok=true;
-          if(plan.fromMode==='me' && !self || plan.fromMode==='them' && self)ok=false;
-          if(ok && plan.anySenders){
-            ok=plan.anySenders.some(wanted=>{
-              if(wanted==='me')return self;
-              if(wanted==='them')return !self;
-              if(self)return false;
-              return RCSCore.matches(info.author || info.sender,wanted) || info.aliases.some(alias=>RCSCore.matches(alias,wanted));
-            });
-          }
-          senderMask[s]=ok?1:0;
-        }
-      }
+      // Pre-resolve distinct senders only when the query filters by sender.
+      const {senderInfos,senderMask}=this._senderFilter(proj,owner,plan,directory);
 
-      proj.compactTail();
-      const {t,room,senderIdx,flags,folded,ids,count}=proj;
       const {start:tStart,end:tEnd,active:timeActive}=plan.timeRange;
+      proj.compactTail({onlyDeleted:!timeActive});
+      const {t,room,senderIdx,flags,folded,ids,count}=proj;
       const needles=plan.requiredNeedles,needleCount=needles.length;
       const reqMask=plan.requiredMediaMask;
       const {matchIgnoreMedia,matchFinal}=plan;
       const wordAt=RCSCore.wordAt;
 
       const ranges=timeActive?proj.timeRanges(tStart,tEnd):[[0,count]];
+      const dir=sort==='oldest'?1:-1;
+      const rId=proj.roomIdByOrd;
+      const topLimit=offset+limit;
+      const streamTopK=!grouped && sort!=='relevant' && topLimit<=2000;
+      const cmpTime=(aIdx,bIdx)=>{
+        const dt=dir*(t[aIdx]-t[bIdx]);if(dt)return dt;
+        const ra=rId.get(room[aIdx]) || '',rb=rId.get(room[bIdx]) || '';
+        const dr=ra.localeCompare(rb);if(dr)return dr;
+        return ids[aIdx].localeCompare(ids[bIdx]);
+      };
 
       const matchedIdx=[];
+      const roomOrdCounts=streamTopK?new Map():null;
+      let totalMatched=0;
       for(const [lo,hi] of ranges)for(let i=lo;i<hi;i++){
         if(!ids[i])continue;
         if(roomSet && !roomSet.has(room[i]))continue;
-        if(senderMask && !senderMask[senderIdx[i]])continue;
+        const s=senderIdx[i];
+        if(senderMask && !senderMask[s])continue;
         const ti=t[i];
         if(timeActive && (ti<tStart || ti>=tEnd))continue;
         const fText=folded[i];
@@ -1526,7 +1533,7 @@
           if(!ok)continue;
         }
         const fl=flags[i];
-        const sInfo=senderInfos[senderIdx[i]];
+        const sInfo=senderInfos?senderInfos[s]:null;
         if(!matchIgnoreMedia(fText,ti,fl,sInfo))continue;
         if(fl){
           if(fl & 1)mediaCounts.image++;
@@ -1538,7 +1545,35 @@
         }
         if(reqMask && (fl & reqMask)!==reqMask)continue;
         if(!matchFinal(fText,ti,fl,sInfo))continue;
-        matchedIdx.push(i);
+        totalMatched++;
+        if(streamTopK){
+          const ord=room[i];
+          roomOrdCounts.set(ord,(roomOrdCounts.get(ord) || 0)+1);
+          if(matchedIdx.length<topLimit){
+            let cur=matchedIdx.length;
+            matchedIdx.push(i);
+            while(cur>0){
+              const p=(cur-1)>>1;
+              if(cmpTime(matchedIdx[p],matchedIdx[cur])>=0)break;
+              const tmp=matchedIdx[p];matchedIdx[p]=matchedIdx[cur];matchedIdx[cur]=tmp;cur=p;
+            }
+          }else{
+            const dt=dir*(ti-t[matchedIdx[0]]);
+            if(dt<0 || dt===0 && cmpTime(i,matchedIdx[0])<0){
+              matchedIdx[0]=i;
+              let cur=0,n=matchedIdx.length;
+              while(true){
+                let worst=cur,l=cur*2+1,r=l+1;
+                if(l<n && cmpTime(matchedIdx[l],matchedIdx[worst])>0)worst=l;
+                if(r<n && cmpTime(matchedIdx[r],matchedIdx[worst])>0)worst=r;
+                if(worst===cur)break;
+                const tmp=matchedIdx[cur];matchedIdx[cur]=matchedIdx[worst];matchedIdx[worst]=tmp;cur=worst;
+              }
+            }
+          }
+        }else{
+          matchedIdx.push(i);
+        }
       }
 
       // Compute exact relevance scores when sort === 'relevant'.
@@ -1564,18 +1599,21 @@
       }
 
       // Deterministic sort matching v1 tie-breakers: (score desc) -> (time desc/asc) -> roomId asc -> id asc.
-      const dir=sort==='oldest'?1:-1;
-      const rId=proj.roomIdByOrd;
-      matchedIdx.sort((aIdx,bIdx)=>{
-        if(scores){const ds=scores.get(bIdx)-scores.get(aIdx);if(ds)return ds;}
-        const dt=dir*(t[aIdx]-t[bIdx]);if(dt)return dt;
-        const ra=rId.get(room[aIdx]) || '',rb=rId.get(room[bIdx]) || '';
-        const dr=ra.localeCompare(rb);if(dr)return dr;
-        return ids[aIdx].localeCompare(ids[bIdx]);
-      });
+      if(scores){
+        matchedIdx.sort((aIdx,bIdx)=>{
+          const ds=scores.get(bIdx)-scores.get(aIdx);if(ds)return ds;
+          return cmpTime(aIdx,bIdx);
+        });
+      }else{
+        matchedIdx.sort(cmpTime);
+      }
 
-      const counts=new Map();
-      for(const idx of matchedIdx){const rid=rId.get(room[idx]);counts.set(rid,(counts.get(rid) || 0)+1);}
+      let counts=null;
+      if(!streamTopK){
+        counts=new Map();
+        for(const idx of matchedIdx){const rid=rId.get(room[idx]);counts.set(rid,(counts.get(rid) || 0)+1);}
+      }
+      const matchedRoomsCount=streamTopK?roomOrdCounts.size:counts.size;
 
       // Fetch ONLY the final page (<=500) of full message records by primary key!
       const pageIdx=matchedIdx.slice(offset,offset+limit);
@@ -1600,17 +1638,24 @@
         const rm=proj.roomMeta.get(proj.roomOrdById.get(roomId));
         coverage=rm?.coverage || {complete:false,dateComplete:false};
       }else{
-        let allComplete=counts.size>0;
+        let allComplete=matchedRoomsCount>0;
         if(allComplete){
-          for(const rid of counts.keys()){
-            const rm=proj.roomMeta.get(proj.roomOrdById.get(rid));
-            if(!rm?.coverage?.complete){allComplete=false;break;}
+          if(streamTopK){
+            for(const ord of roomOrdCounts.keys()){
+              const rm=proj.roomMeta.get(ord);
+              if(!rm?.coverage?.complete){allComplete=false;break;}
+            }
+          }else{
+            for(const rid of counts.keys()){
+              const rm=proj.roomMeta.get(proj.roomOrdById.get(rid));
+              if(!rm?.coverage?.complete){allComplete=false;break;}
+            }
           }
         }
         coverage={complete:allComplete,unknownRooms:false,threadsVerified:false};
       }
 
-      return {owner,selfIdentity:selfId,persistent:this.persistent,records:page,total:matchedIdx.length,hasMore:offset+limit<matchedIdx.length,matchedRooms:counts.size,mediaCounts,availableMediaTypes,...(grouped?{groups}:{}),stats:statsObj,coverage};
+      return {owner,selfIdentity:selfId,persistent:this.persistent,records:page,total:totalMatched,hasMore:offset+limit<totalMatched,matchedRooms:matchedRoomsCount,mediaCounts,availableMediaTypes,...(grouped?{groups}:{}),stats:statsObj,coverage};
     }
 
     async _searchSingleRoom(owner,roomId,{query='',roomIds,dates={},from='all',wholeWord=false,sort='newest',grouped=false,limit=200,offset=0},directory){

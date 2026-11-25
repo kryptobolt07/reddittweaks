@@ -402,3 +402,48 @@ test('date-bounded searches keep their fast path after live messages arrive, and
  const newer=await store.searchCount(owner,{query:'',minTimeExclusive:base+day,committed:true});
  assert.equal(newer.certified,2,'gamma from the prefix and delta from the tail');
 });
+
+test('bounded top-K search matches exact tie-breaker ordering and skips unnecessary tail re-sorts and sender merges',async()=>{
+ const idb=new IDBFactory(),{M,C}=makeEnv(idb);
+ const store=new M.Store({indexedDB:idb,name:'topk-and-fastpath'});
+ const owner='@t2_owner:reddit.com',alice='@t2_alice:reddit.com',bob='@t2_bob:reddit.com';
+ const rooms=['!r1:reddit.com','!r2:reddit.com','!r3:reddit.com'];
+ const base=Date.UTC(2026,4,1);
+ // 2,400 matching messages across 3 rooms with intentional timestamp ties.
+ for(const [ri,roomId] of rooms.entries()){
+  const events=[];
+  for(let i=0;i<800;i++){
+   events.push({event_id:`$m_${ri}_${String(i).padStart(4,'0')}`,room_id:roomId,type:'m.room.message',sender:i%3===0?owner:i%3===1?alice:bob,origin_server_ts:base+Math.floor(i/4)*1000,content:{msgtype:'m.text',body:'hello world '+i}});
+  }
+  for(let o=0;o<events.length;o+=500)await store.ingest({owner,roomId,events:events.slice(o,o+500),identities:[{id:alice,name:'alice'},{id:bob,name:'bob'}]});
+ }
+ assert.equal(C.compilePlan('hello').needsSenderInfo,false);
+ assert.equal(C.compilePlan('hello',{from:'me'}).needsSenderIdentity,false);
+ assert.equal(C.compilePlan('hello',{from:'me'}).needsSenderInfo,true);
+ assert.equal(C.compilePlan('NOT from:alice').needsSenderIdentity,true);
+ assert.equal(C.compilePlan('hello OR from:alice').needsSenderIdentity,true);
+
+ const proj=await store._ensureProjection(owner);
+ // Compare streaming top-K (limit<=2000, ungrouped) against grouped full-sort ground truth for newest & oldest with offsets.
+ for(const sort of ['newest','oldest']){
+  const full=await store.search(owner,{query:'hello',sort,grouped:true,limit:500,offset:0,committed:true});
+  const page1=await store.search(owner,{query:'hello',sort,limit:500,offset:0,committed:true});
+  const page2=await store.search(owner,{query:'hello',sort,limit:500,offset:500,committed:true});
+  const fullPage2=await store.search(owner,{query:'hello',sort,grouped:true,limit:500,offset:500,committed:true});
+  assert.equal(page1.total,2400);assert.equal(page1.matchedRooms,3);assert.equal(page1.hasMore,true);
+  assert.deepEqual(page1.records.map(r=>r.roomId+':'+r.id),full.records.map(r=>r.roomId+':'+r.id));
+  assert.deepEqual(page2.records.map(r=>r.roomId+':'+r.id),fullPage2.records.map(r=>r.roomId+':'+r.id));
+ }
+ // Boolean NOT/OR sender expressions still resolve identities accurately.
+ const notAlice=await store.search(owner,{query:'hello NOT from:alice',limit:50,committed:true});
+ assert.equal(notAlice.total,1599);assert.ok(notAlice.records.every(r=>r.sender!==alice));
+ const meOnly=await store.search(owner,{query:'hello',from:'me',limit:50,committed:true});
+ assert.equal(meOnly.total,801);assert.ok(meOnly.records.every(r=>r.sender===owner));
+
+ // Appending out-of-order messages without date filters must not force sortDescending() on plain searches.
+ let sorts=0;const origSort=proj.sortDescending.bind(proj);proj.sortDescending=()=>{sorts++;return origSort();};
+ await store.ingest({owner,roomId:rooms[0],events:Array.from({length:300},(_,i)=>({event_id:`$late_${i}`,room_id:rooms[0],type:'m.room.message',sender:owner,origin_server_ts:base+999999000+i,content:{msgtype:'m.text',body:'hello late '+i}}))});
+ assert.equal((await store.search(owner,{query:'hello',limit:20,committed:true})).total,2700);
+ assert.equal(sorts,0,'plain non-date search skips unnecessary projection re-sorts');
+ (await store.db()).close();
+});

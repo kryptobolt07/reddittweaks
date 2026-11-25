@@ -496,3 +496,50 @@ test('popup global stats are cached persistently and updated incrementally witho
   const afterClearAll=await b2.send({action:'stats'},popup);
   assert.equal(afterClearAll.stats.messages,0);assert.equal(afterClearAll.stats.rooms,0);assert.equal(afterClearAll.stats.approxBytes,0);assert.equal(afterClearAll.accounts,0);
 });
+
+test('broker caches the directory in memory across repeated searches and skips disk reads on plain search-count',async()=>{
+  const {IDBFactory}=require('fake-indexeddb');
+  const idb=new IDBFactory(),storageData={},sessionData={};
+  let dirReads=0;
+  const listeners=[];
+  const makeStorage=(backing,countDir)=>({
+    async get(keys){
+      const list=keys===null?Object.keys(backing):[].concat(keys);
+      if(countDir && list.some(k=>k.startsWith('rcs-directory-v2:')))dirReads++;
+      return Object.fromEntries(list.filter(k=>k in backing).map(k=>[k,JSON.parse(JSON.stringify(backing[k]))]));
+    },
+    async set(obj){for(const [k,v] of Object.entries(obj))backing[k]=JSON.parse(JSON.stringify(v));},
+    async remove(keys){for(const k of [].concat(keys))delete backing[k];},
+    setAccessLevel(){}
+  });
+  const ctx=vm.createContext({console,Date,Math,Map,Set,Array,Object,Promise,TextEncoder,Uint8Array,Uint32Array,Float64Array,Number,String,RegExp,Error,JSON,IDBKeyRange,indexedDB:idb,setTimeout,clearTimeout,crypto:require('node:crypto').webcrypto,
+    chrome:{runtime:{id:'extension',getURL:p=>'chrome-extension://extension/'+p,onMessage:{addListener:fn=>listeners.push(fn)}},tabs:{query:async()=>[],sendMessage:async()=>{}},storage:{local:makeStorage(storageData,true),session:makeStorage(sessionData,false)}}});
+  ctx.importScripts=(...files)=>files.forEach(file=>vm.runInContext(fs.readFileSync(`extension/${file}`,'utf8'),ctx));
+  vm.runInContext(fs.readFileSync('extension/cache-broker.js','utf8'),ctx);
+  const send=(scope,message,sender)=>new Promise(resolve=>listeners.find(listener=>listener({scope,...message},sender,resolve)));
+  const tab={id:'extension',url:'https://chat.reddit.com/',tab:{id:1},documentId:'d1'},popup={id:'extension',url:'chrome-extension://extension/popup.html'};
+  const lease=await send('rcs-directory',{action:'acquire',owner},tab);
+  await send('rcs-directory',{action:'publish',owner,token:lease.token,full:true,records:[{id:roomId,name:'alex',participantIds:['@t2_alex:reddit.com']}],identities:[{id:'@t2_alex:reddit.com',name:'alex'}]},tab);
+  await send('rcs-messages',{...batch([event('$m1','hello world',1000,{sender:'@t2_alex:reddit.com'})]),action:'ingest'},tab);
+  dirReads=0;
+  // Plain search-count needs no directory lookup at all.
+  assert.equal((await send('rcs-messages',{action:'search-count',owner,query:'hello'},tab)).certified,1);
+  assert.equal(dirReads,0,'plain search-count skips reading the directory from storage');
+  // Repeated searches reuse the in-memory cached directory (0 disk reads after publish warmed the cache).
+  for(let i=0;i<5;i++){
+    const res=await send('rcs-messages',{action:'search',owner,query:'hello'},tab);
+    assert.equal(res.total,1);assert.equal(res.records[0].author,'alex');
+  }
+  assert.equal(dirReads,0,'repeated searches reuse the cached directory without reading chrome.storage.local');
+  // Directory publish updates the cached directory immediately.
+  const lease2=await send('rcs-directory',{action:'acquire',owner},tab);
+  await send('rcs-directory',{action:'publish',owner,token:lease2.token,full:true,records:[{id:roomId,name:'alex_renamed',participantIds:['@t2_alex:reddit.com']}],identities:[{id:'@t2_alex:reddit.com',name:'alex_renamed'}]},tab);
+  dirReads=0;
+  const renamed=await send('rcs-messages',{action:'search',owner,query:'from:alex_renamed'},tab);
+  assert.equal(renamed.total,1);assert.equal(renamed.records[0].author,'alex_renamed');
+  assert.equal(dirReads,0);
+  // Clearing the directory clears the in-memory cache so stale directory names are not kept.
+  await send('rcs-directory',{action:'clear'},popup);
+  const afterClear=await send('rcs-messages',{action:'search',owner,query:'from:alex_renamed'},tab);
+  assert.equal(afterClear.total,0);
+});

@@ -551,13 +551,16 @@
     const parsed=typeof query==='object' && query!==null?query:parseQuery(query),bounds=dateBounds(dates);
     if(parsed.invalid || bounds.invalid){
       const never=()=>false;
-      return {invalid:true,impossible:true,parsed,structured:false,timeRange:{start:Infinity,end:-Infinity,active:true},requiredNeedles:[],requiredMediaMask:0,fromMode:from,anySenders:null,roomPruneSenders:null,matchIgnoreMedia:never,matchFinal:never};
+      return {invalid:true,impossible:true,parsed,structured:false,timeRange:{start:Infinity,end:-Infinity,active:true},requiredNeedles:[],requiredMediaMask:0,fromMode:from,anySenders:null,roomPruneSenders:null,needsSenderIdentity:false,needsSenderInfo:from!=='all',matchIgnoreMedia:never,matchFinal:never};
     }
     const opts={wholeWord,shortTermsWholeWord};
     const root=exprFor(parsed);
     const hasField=node=>node.type==='field' || node.type==='not' && hasField(node.child) || (node.children || []).some(hasField);
+    const hasFromField=node=>Boolean(node && (node.type==='field' && node.field==='from' || node.type==='not' && hasFromField(node.child) || (node.children || []).some(hasFromField)));
     const fieldBoolean=node=>node.type==='not' && hasField(node.child) || node.type==='field' && !node.legacy || (node.children || []).some(fieldBoolean);
     const structured=parsed.explicitBoolean || fieldBoolean(root);
+    const needsSenderIdentity=Boolean(parsed.from.length || hasFromField(root));
+    const needsSenderInfo=Boolean(from!=='all' || needsSenderIdentity);
 
     // Extract guaranteed-superset required needles (longest first for fastest rejection).
     function extractNeedles(node){
@@ -676,8 +679,10 @@
         const local=ignoreMedia?splitQuery(parsed,['and','or','not','term','phrase',...queryFields,'from','after','before']).server:parsed;
         const evalAst=compileNode(exprFor(local),false);
         return (folded,time,flags,senderInfo)=>{
-          const self=Boolean(senderInfo.self);
-          if(from==='me' && !self || from==='them' && self)return false;
+          if(from!=='all'){
+            const self=Boolean(senderInfo?.self);
+            if(from==='me' && !self || from==='them' && self)return false;
+          }
           if(bounds.active && !(Number.isFinite(time) && time>=bounds.start && time<bounds.end))return false;
           return evalAst(folded,time,flags,senderInfo);
         };
@@ -686,8 +691,10 @@
       const mediaMask=ignoreMedia?0:requiredMediaMask;
       const fromList=parsed.from;
       return (folded,time,flags,senderInfo)=>{
-        const self=Boolean(senderInfo.self);
-        if(from==='me' && !self || from==='them' && self)return false;
+        if(from!=='all'){
+          const self=Boolean(senderInfo?.self);
+          if(from==='me' && !self || from==='them' && self)return false;
+        }
         if(fromList.length && !fromList.some(wanted=>senderMatches(senderInfo,wanted)))return false;
         if(timeActive && !(Number.isFinite(time) && time>=start && time<end))return false;
         if(mediaMask && (flags & mediaMask)!==mediaMask)return false;
@@ -706,6 +713,8 @@
       fromMode:from,
       anySenders,
       roomPruneSenders,
+      needsSenderIdentity,
+      needsSenderInfo,
       matchIgnoreMedia:buildEvaluator(true),
       matchFinal:buildEvaluator(false),
     };

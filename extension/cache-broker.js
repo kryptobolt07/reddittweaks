@@ -26,15 +26,36 @@ async function chatSearchEnabled() {
   try{const stored=await chrome.storage?.local?.get?.('rt-settings-v1');return stored?.['rt-settings-v1']?.chatSearch!==false;}
   catch{return true;}
 }
-async function entryFor(owner) {
+const directoryCache=new Map();
+function cacheDirectory(owner,entry) {
+  directoryCache.delete(owner);
+  directoryCache.set(owner,entry);
+  while(directoryCache.size>10)directoryCache.delete(directoryCache.keys().next().value);
+}
+chrome.storage?.onChanged?.addListener?.((changes,area)=>{
+  if(area!=='local')return;
+  for(const key of Object.keys(changes)) {
+    if(key.startsWith(cachePrefix)) {
+      const owner=key.slice(cachePrefix.length),next=changes[key]?.newValue;
+      if(next?.schema===2)cacheDirectory(owner,next);
+      else directoryCache.delete(owner);
+    } else if(key.startsWith(oldPrefix)) {
+      directoryCache.delete(key.slice(oldPrefix.length));
+    }
+  }
+});
+async function entryFor(owner,{cached=false}={}) {
+  if(cached && directoryCache.has(owner))return directoryCache.get(owner);
   const key=cachePrefix+owner;
   const stored=await chrome.storage.local.get([key,oldPrefix+owner]);
-  if(stored[key]?.schema===2)return stored[key];
+  if(stored[key]?.schema===2){cacheDirectory(owner,stored[key]);return stored[key];}
   if(stored[oldPrefix+owner]) {
     const entry=Model.normalise(stored[oldPrefix+owner],owner);
     await chrome.storage.local.set({[key]:entry});
-    await chrome.storage.local.remove(oldPrefix+owner);return entry;
+    await chrome.storage.local.remove(oldPrefix+owner);
+    cacheDirectory(owner,entry);return entry;
   }
+  cacheDirectory(owner,undefined);
 }
 function mergeRecords(previous, additions) {
   const records=new Map((previous || []).map(record=>[record.id,record]));
@@ -47,6 +68,7 @@ async function handle(message,sender) {
     if(!isPopup(sender))throw Error('Open the extension popup to clear the cache.');
     const all=await chrome.storage.local.get(null);
     await chrome.storage.local.remove(Object.keys(all).filter(key=>key.startsWith(cachePrefix)||key.startsWith(oldPrefix)||key.startsWith(cooldownPrefix)));
+    directoryCache.clear();
     const session=await withBackfillLeases(async()=>{
       const saved=await chrome.storage.session.get(null);
       await chrome.storage.session.remove(Object.keys(saved).filter(key=>key.startsWith(leasePrefix)||key.startsWith(backfillLeasePrefix)||key.startsWith(sessionPrefix)));
@@ -132,7 +154,7 @@ async function handle(message,sender) {
     }
     if(!changed)return {changed:false};
     const saved=Model.normalise({...entry,identities:identityMap,accountStates},owner);
-    await chrome.storage.local.set({[key]:saved});return {changed:true,entry:Model.view(saved)};
+    await chrome.storage.local.set({[key]:saved});cacheDirectory(owner,saved);return {changed:true,entry:Model.view(saved)};
   }
   const owns=Boolean(lease && lease.token===message.token && lease.holder===holder && lease.expires>now);
   if(message.action==='acquire') {
@@ -162,7 +184,7 @@ async function handle(message,sender) {
       directoryCursor:directoryComplete ? null : Object.hasOwn(message,'directoryCursor') ? message.directoryCursor : entry?.directoryCursor,
       activityCursor:activityComplete ? null : Object.hasOwn(message,'activityCursor') ? message.activityCursor : entry?.activityCursor,
       directoryVerifiedAt:complete ? now : entry?.directoryVerifiedAt || 0},owner);
-    await chrome.storage.local.set({[key]:saved});
+    await chrome.storage.local.set({[key]:saved});cacheDirectory(owner,saved);
     if(complete)await chrome.storage.session.set({[sessionKey]:{verifiedAt:now}});
     if(message.action==='publish')await chrome.storage.session.remove(leaseKey);
     return {entry:Model.view(saved),verifiedAt:complete ? now : reply.verifiedAt};
@@ -302,11 +324,14 @@ async function handleMessages(message,sender,sendRoomRecords) {
   if(message.action==='mark-native-import-complete'){if(!await chatSearchEnabled())return {nativeImportComplete:false,disabled:true};await messages.importState(message.owner,true);return {nativeImportComplete:true};}
   if(message.action==='stats')return messages.stats(message.owner,{committed:true});
   if(message.action==='summaries')return messages.summaries(message.owner,{committed:true});
-  if(message.action==='search')return messages.search(message.owner,{...message,committed:true},await entryFor(message.owner));
-  if(message.action==='search-count')return messages.searchCount(message.owner,{...message,committed:true},await entryFor(message.owner));
+  if(message.action==='search')return messages.search(message.owner,{...message,committed:true},await entryFor(message.owner,{cached:true}));
+  if(message.action==='search-count'){
+    const needsDir=Boolean(message.from && message.from!=='all' || typeof message.query==='string' && /from:/i.test(message.query));
+    return messages.searchCount(message.owner,{...message,committed:true},needsDir?await entryFor(message.owner,{cached:true}):undefined);
+  }
   if(message.action==='room') {
     if(typeof message.roomId!=='string' || !message.roomId || message.roomId.length>1000)throw Error('Invalid room');
-    return messages.room(message.owner,message.roomId,await entryFor(message.owner),{committed:true,send:sendRoomRecords});
+    return messages.room(message.owner,message.roomId,await entryFor(message.owner,{cached:true}),{committed:true,send:sendRoomRecords});
   }
   throw Error('Unknown message operation');
 }
