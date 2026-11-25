@@ -12,6 +12,34 @@ function environment() {
 }
 const tick = () => new Promise(resolve=>setTimeout(resolve,220));
 const plain = value => JSON.parse(JSON.stringify(value));
+test('room sort keeps relevance, timestamps and input order for tied results',t=>{
+  const dom=environment();t.after(()=>dom.window.close());const C=dom.window.RCSCore,query='"café au lait" OR coffee';
+  const hits=[
+    {id:'z',text:'Café au lait',timestamp:'2026-10-08T12:00:00Z'},
+    {id:'a',text:'Café au lait',timestamp:'2026-10-08T12:00:00Z'},
+    {id:'b',text:'coffee coffee',timestamp:'2026-10-09T12:00:00Z'},
+    {id:'c',text:'coffee among other words',timestamp:'invalid'},
+    {id:'d',text:'Café au lait coffee',timestamp:'2026-10-07T12:00:00Z'}
+  ];
+  for(const sort of ['relevant','newest','oldest'])for(const wholeWord of [true,false]){
+    const reference=[...hits].sort((a,b)=>{
+      const newest=(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0);
+      if(sort==='oldest')return -newest;
+      return (sort==='relevant'?C.relevanceScore(b.text,query,{wholeWord})-C.relevanceScore(a.text,query,{wholeWord}):0) || newest;
+    });
+    assert.deepEqual(Array.from(C.sortRoomHits(hits,C.parseQuery(query),{sort,wholeWord}),hit=>hit.id),reference.map(hit=>hit.id));
+  }
+});
+test('inactive room releases durable-only records and keeps live or pending history',t=>{
+  const dom=environment();t.after(()=>dom.window.close());const index=new dom.window.RCSCore.MessageIndex(Infinity);
+  index.upsert('room',[{id:'overlap',text:'native'},{id:'live',text:'live only'}],{authoritative:true});
+  index.upsert('room',[{id:'overlap',text:'saved'},{id:'persisted',text:'durable only'},{id:'visible',text:'saved and later seen'}],{authoritative:true,saved:true});
+  index.upsert('room',[{id:'visible',text:'DOM text'}],{dom:true});
+  index.upsert('other',[{id:'other-room',text:'independent'}],{authoritative:true,saved:true});
+  index.releaseSaved('room');
+  assert.deepEqual(Array.from(index.rooms.get('room').values(),r=>[r.id,r.text]),[['overlap','saved'],['live','live only'],['visible','saved and later seen']]);
+  assert.equal(index.rooms.get('other').size,1);
+});
 test('room search ignores local echo IDs until a confirmed server ID arrives',t=>{
   const dom=environment();t.after(()=>dom.window.close());const index=new dom.window.RCSCore.MessageIndex();
   index.upsert('room',[{id:'~room:m123',text:'pending'}]);assert.equal(index.search('room','').length,0);

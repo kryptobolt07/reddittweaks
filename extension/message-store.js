@@ -252,26 +252,31 @@
     }
     // Re-sort every column newest first, so date-bounded searches can binary-search the whole projection.
     sortDescending(){
-      if(this.count>1){
-        const orderIdx=new Uint32Array(this.count);
-        for(let i=0;i<this.count;i++)orderIdx[i]=i;
+      if(this.count>1 || this.liveCount!==this.count){
+        const orderIdx=new Uint32Array(this.liveCount);
+        for(let i=0,next=0;i<this.count;i++)if(this.ids[i])orderIdx[next++]=i;
         orderIdx.sort((x,y)=>this.t[y]-this.t[x]);
+        this.capacity=Math.max(256,2**Math.ceil(Math.log2(Math.max(1,this.liveCount))));
         const nt=new Float64Array(this.capacity),nr=new Uint32Array(this.capacity),ns=new Uint32Array(this.capacity),nf=new Uint8Array(this.capacity);
-        const nFolded=new Array(this.count),nIds=new Array(this.count);
+        const nFolded=new Array(this.liveCount),nIds=new Array(this.liveCount);
         this.keyToPos.clear();
-        for(let i=0;i<this.count;i++){
+        for(let i=0;i<this.liveCount;i++){
           const old=orderIdx[i];
           nt[i]=this.t[old];nr[i]=this.room[old];ns[i]=this.senderIdx[old];nf[i]=this.flags[old];
           nFolded[i]=this.folded[old];nIds[i]=this.ids[old];
-          if(nIds[i])this.keyToPos.set(nr[i]+'\0'+nIds[i],i);
+          this.keyToPos.set(nr[i]+'\0'+nIds[i],i);
         }
         this.t=nt;this.room=nr;this.senderIdx=ns;this.flags=nf;this.folded=nFolded;this.ids=nIds;
+        this.count=this.liveCount;
       }
       this.sortedDesc=true;this.sortedCount=this.count;this.lastT=this.count?this.t[this.count-1]:Infinity;
     }
     // Index ranges a date-bounded scan needs: the matching slice of the sorted prefix, then the unsorted tail.
     // compactTail() folds a long tail back in; call it before reading the column arrays.
-    compactTail(){if(this.count-this.sortedCount>Math.max(2048,this.count>>3))this.sortDescending();}
+    compactTail(){
+      const threshold=Math.max(2048,this.count>>3);
+      if(this.count-this.sortedCount>threshold || this.count-this.liveCount>threshold)this.sortDescending();
+    }
     timeRanges(start,end){
       const [lo,hi]=descendingTimeBounds(this.t,this.sortedCount,start,end);
       return this.sortedCount<this.count?[[lo,hi],[this.sortedCount,this.count]]:[[lo,hi]];
@@ -1394,7 +1399,7 @@
       scan: for(const [lo,hi] of ranges)for(let i=lo;i<hi;i++){
         const ti=t[i];
         if(hasMin && ti<=minTimeExclusive){if(i<sortedEnd)continue scan;continue;}
-        // Removed (redacted or deleted) entries keep their slot; search() skips them, so the count does too.
+        // Skip deleted slots that have not been compacted yet.
         if(!ids[i])continue;
         if(timeActive && (ti<tStart || ti>=tEnd))continue;
         if(roomSet && !roomSet.has(room[i]))continue;
@@ -1548,10 +1553,12 @@
         }
         if(nonAscii.length){
           const tx=await this.transaction('msgs','readonly');
-          const rawMsgs=await Promise.all(nonAscii.map(idx=>this._getMsg(tx,proj.a,room[idx],ids[idx])));
-          for(let k=0;k<nonAscii.length;k++){
-            const idx=nonAscii[k],raw=rawMsgs[k];
-            scores.set(idx,RCSCore.relevanceScore(raw?.b || folded[idx],plan.parsed,{wholeWord}));
+          for(let offset=0;offset<nonAscii.length;offset+=256){
+            const batch=nonAscii.slice(offset,offset+256);
+            const rawMsgs=await Promise.all(batch.map(idx=>this._getMsg(tx,proj.a,room[idx],ids[idx])));
+            for(const [position,idx] of batch.entries()){
+              scores.set(idx,RCSCore.relevanceScore(rawMsgs[position]?.b || folded[idx],plan.parsed,{wholeWord}));
+            }
           }
         }
       }
@@ -1658,7 +1665,56 @@
       return {owner,selfIdentity:identity(selfPerson),persistent:this.persistent,records,total:matched.length,hasMore:offset+limit<matched.length,matchedRooms:matched.length?1:0,mediaCounts,availableMediaTypes,...(grouped?{groups:matched.length?[{roomId,total:matched.length,records}]:[]}:{}),stats:statsObj,coverage:rm.coverage || {complete:false,dateComplete:false}};
     }
 
-    async room(owner,roomId,directory,{committed=false}={}) {
+    async _streamRoom(owner,roomId,directory,send) {
+      const tx=await this.transaction(['accounts','rooms','msgs','people'],'readonly');
+      const acc=await this._getAccount(tx,owner);
+      const room=acc?await this._getRoomById(tx,acc.a,roomId):null;
+      const self=acc?await this._getPerson(tx,acc.a,owner):null;
+      const people=new Map(),identities=new Map(),mediaCounts=emptyMediaCounts(),mediaFlags=Object.entries(MEDIA_BITS);
+      const stats={messages:acc?.stats?.messages || 0,rooms:acc?.stats?.rooms || 0,completeRooms:acc?.stats?.completeRooms || 0,approxBytes:acc?.stats?.bytes || 0,...(acc?.stats?.unknownEvents?{unknownEvents:acc.stats.unknownEvents}:{})};
+      let total=0,records=[],packetSize=0;
+      const flush=()=>{
+        if(records.length)send(records);
+        records=[];packetSize=0;
+      };
+      const emit=async messages=>{
+        for(const msg of messages){
+          if(!msg.b || msg.e?.startsWith('~') || msg.eb?.startsWith('~'))continue;
+          if(!people.has(msg.u))people.set(msg.u,msg.u===owner?self:await this._getPerson(tx,acc.a,msg.u));
+          const record=this._materializeRecord(owner,roomId,msg,people,directory,identities);
+          let size=400;
+          for(const value of Object.values(record))if(typeof value==='string')size+=value.length*6;
+          if(records.length && packetSize+size>1024*1024)flush();
+          records.push(record);packetSize+=size;total++;
+          for(const [type,flag] of mediaFlags)if(msg.f & flag)mediaCounts[type]++;
+        }
+        flush();
+      };
+      if(room && tx){
+        // One read transaction supplies a consistent snapshot while bounded key
+        // ranges avoid cloning the whole conversation into the worker at once.
+        const store=tx.objectStore('msgs'),upper=[acc.a,room.n,'\uffff'];
+        let lower=[acc.a,room.n,''],lowerOpen=false;
+        while(true){
+          const batch=await request(store.getAll(IDBKeyRange.bound(lower,upper,lowerOpen),256));
+          await emit(batch);
+          if(batch.length<256)break;
+          lower=[acc.a,room.n,batch.at(-1).e];lowerOpen=true;
+        }
+      }else if(room){
+        let batch=[];
+        for(const msg of this.mem.msgs.values())if(msg.a===acc.a && msg.n===room.n){
+          batch.push(msg);
+          if(batch.length===256){await emit(batch);batch=[];}
+        }
+        await emit(batch);
+      }
+      return {owner,selfIdentity:identity(self),persistent:this.persistent,total,hasMore:false,matchedRooms:total?1:0,
+        mediaCounts,availableMediaTypes:MEDIA_TYPES.filter(type=>(acc?.mediaTypeCounts?.[type] || 0)>0),stats,
+        coverage:room?.coverage || {complete:false,dateComplete:false}};
+    }
+
+    async room(owner,roomId,directory,{committed=false,send}={}) {
       if(!ownerOK(owner))throw Error('Invalid account');
       if(typeof roomId!=='string' || !roomId || roomId.length>1000)throw Error('Invalid room');
       if(!committed)await this.queue;
@@ -1667,9 +1723,15 @@
         if(!acc || acc.migration?.state!=='done'){
           this.ensureMigration(owner).catch(()=>{});
           const v1Res=await this.legacy.searchV1(owner,{query:'',roomId,dates:{},limit:Infinity,offset:0},directory);
-          if(v1Res)return v1Res;
+        if(v1Res){
+          if(!send)return v1Res;
+          const {records,...metadata}=v1Res;
+          for(let i=0;i<records.length;i+=16)send(records.slice(i,i+16));
+          return metadata;
+        }
         }
       }
+      if(send)return this._streamRoom(owner,roomId,directory,send);
       return this._searchSingleRoom(owner,roomId,{query:'',dates:{},limit:Infinity,offset:0},directory);
     }
 

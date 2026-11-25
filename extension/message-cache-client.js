@@ -49,12 +49,37 @@
     })().finally(()=>{healthProbe=null;});}
     return healthProbe;
   }
-  async function call(action,parameters={}) {
+  function receiveRoom(port,{owner,roomId}) {
+    return new Promise((resolve,reject)=>{
+      const records=[];
+      port.onDisconnect.addListener(()=>reject(Error(runtime.lastError?.message || 'Saved room connection closed. Please retry.')));
+      port.onMessage.addListener(packet=>{
+        if(packet.records){
+          for(const record of packet.records)records.push(record);
+          return;
+        }
+        if(!packet.ok){reject(Error(packet.error || 'Unable to access saved messages'));return;}
+        // The legacy reader already delivers the exact result order. The
+        // current database streams primary key batches from one snapshot.
+        if(!packet.result.migrating)records.sort((a,b)=>(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0) || a.id.localeCompare(b.id));
+        resolve({ok:true,...packet.result,records});
+      });
+      port.postMessage({owner,roomId});
+    });
+  }
+  async function call(action,parameters={},signal) {
     if(contextError)throw contextError;
-    if(runtime?.sendMessage){let timer;const reading=['search','search-count','room','stats','summaries','coverage','backfill-lease'].includes(action);
+    if(signal?.aborted)throw signal.reason;
+    if(runtime?.sendMessage){let timer,port,onAbort;const reading=['search','search-count','room','stats','summaries','coverage','backfill-lease'].includes(action);
       try{const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>reject(Object.assign(Error(reading?'Reading saved messages took too long. Saved data is kept; try Refresh.':'Saving messages took too long. Saved data is kept; try Refresh.'),{code:reading?'RCS_READ_TIMEOUT':'RCS_WRITE_TIMEOUT'})),reading?15000:30000);});
-        const value=await Promise.race([runtime.sendMessage({scope:'rcs-messages',...parameters,action}),timeout]);if(!value?.ok)throw Error(value?.error || 'Unable to access saved messages');return value;
-      }catch(error){if(error.code==='RCS_READ_TIMEOUT' && !await workerResponsive())throw Error('Reddit Tweaks’ background worker is not responding. Reload Reddit Tweaks, then refresh this Reddit tab. Saved data is kept.');throw transportError(error);}finally{clearTimeout(timer);}
+        const interrupted=signal && new Promise((_,reject)=>{
+          onAbort=()=>reject(signal.reason);
+          signal.addEventListener('abort',onAbort,{once:true});
+        });
+        const reply=action==='room' && runtime.connect?(port=runtime.connect({name:'rcs-room-snapshot'}),receiveRoom(port,parameters)):runtime.sendMessage({scope:'rcs-messages',...parameters,action});
+        const value=await Promise.race(interrupted?[reply,timeout,interrupted]:[reply,timeout]);if(!value?.ok)throw Error(value?.error || 'Unable to access saved messages');return value;
+      }catch(error){if(error?.code==='RCS_READ_TIMEOUT' && !await workerResponsive())throw Error('Reddit Tweaks’ background worker is not responding. Reload Reddit Tweaks, then refresh this Reddit tab. Saved data is kept.');throw transportError(error);}
+      finally{clearTimeout(timer);if(onAbort)signal.removeEventListener('abort',onAbort);try{port?.disconnect();}catch{}}
     }
     if(action==='ingest')return memory.ingest(parameters);
     if(action==='image-dimensions')return memory.rememberDimensions(parameters);
@@ -175,14 +200,16 @@
     }catch(error){notify({owner:value.owner,error:error.message});}
   });
   async function read(action,parameters={},waitForImport=false) {
+    const {signal,retryWrites,...options}=parameters;
+    if(signal?.aborted)throw signal.reason;
     const active=await context(),revision=readRevision;
-    if(parameters.retryWrites && pending.length && !draining)schedule();
-    if((parameters.retryWrites || waitForImport) && cacheErrors.has(active)){importRequests.get(active)?.cancel?.();initializations.delete(active);if(parameters.retryWrites || imports.get(active)?.available!==true)imports.delete(active);cacheErrors.delete(active);cacheProgress.delete(active);}
+    if(retryWrites && pending.length && !draining)schedule();
+    if((retryWrites || waitForImport) && cacheErrors.has(active)){importRequests.get(active)?.cancel?.();initializations.delete(active);if(retryWrites || imports.get(active)?.available!==true)imports.delete(active);cacheErrors.delete(active);cacheProgress.delete(active);}
     const initialization=waitForImport || !writeError && !overflowError?ensureReady(active):null;
     // Interactive reads never drain captures. Only ready()/flush() and native
     // producer acknowledgements establish that pending messages are saved.
     if(waitForImport){await initialization;await flush();}else initialization?.catch(()=>{});
-    const {retryWrites,...options}=parameters,result=await call(action,{...options,owner:active});
+    const result=await call(action,{...options,owner:active},signal);
     if(await context()!==active)throw Error('Reddit account changed. Please retry.');
     if(revision!==readRevision)throw Error('Saved messages changed. Please retry.');
     if(result.selfIdentity?.id===active)selfIdentity={...result.selfIdentity,...nativeSelfIdentity,avatar:nativeSelfIdentity?.avatar || result.selfIdentity.avatar || selfIdentity?.avatar || ''};
@@ -208,7 +235,7 @@
     });
   }
   window.addEventListener('pagehide',event=>{if(!event.persisted){clearTimeout(dimensionTimer);for(const item of dimensionPatches.values())item.resolve({changed:false});dimensionPatches.clear();}});
-  globalThis.RCSMessages=Object.freeze({getSelfIdentity:()=>selfIdentity?.id===owner?{...selfIdentity}:null,ready:()=>read('stats',{},true),search:parameters=>read('search',parameters),room:roomId=>read('room',{roomId}),stats:()=>read('stats'),summaries:()=>read('summaries'),coverage:roomIds=>read('coverage',{...(roomIds?{roomIds}:{})}),markInaccessible:(roomId,status)=>read('mark-inaccessible',{roomId,status}),updateHeads:heads=>read('update-heads',{heads}),backfillLease:(op,token)=>read('backfill-lease',{op,...(token?{token}:{})}),rememberImageDimensions,flush,setEnabled,isEnabled:()=>chatSearchEnabled,subscribe(listener){subscribers.add(listener);return()=>subscribers.delete(listener);}});
+  globalThis.RCSMessages=Object.freeze({getSelfIdentity:()=>selfIdentity?.id===owner?{...selfIdentity}:null,ready:()=>read('stats',{},true),search:parameters=>read('search',parameters),room:(roomId,{signal}={})=>read('room',{roomId,signal}),stats:()=>read('stats'),summaries:()=>read('summaries'),coverage:roomIds=>read('coverage',{...(roomIds?{roomIds}:{})}),markInaccessible:(roomId,status)=>read('mark-inaccessible',{roomId,status}),updateHeads:heads=>read('update-heads',{heads}),backfillLease:(op,token)=>read('backfill-lease',{op,...(token?{token}:{})}),rememberImageDimensions,flush,setEnabled,isEnabled:()=>chatSearchEnabled,subscribe(listener){subscribers.add(listener);return()=>subscribers.delete(listener);}});
   if(runtime?.id && runtime.sendMessage){
     (globalThis.RCSChatStartup?.getSettings?.() || Promise.resolve().then(()=>runtime.sendMessage({scope:'rt-posts',action:'get-settings'}))).then(response=>{
       if(response?.ok && response.settings?.chatSearch===false)setEnabled(false);

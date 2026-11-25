@@ -435,11 +435,20 @@
   function fullTimestamp(timestamp){
     const date=new Date(timestamp);return Number.isFinite(date.getTime())?date.toLocaleString(undefined,{weekday:'short',year:'numeric',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'Date unavailable';
   }
+  function sortRoomHits(hits,parsed,{sort,wholeWord}={}){
+    const direction=sort==='oldest'?1:-1;
+    const order=hits.map((hit,index)=>({
+      index,
+      time:Date.parse(hit.timestamp) || 0,
+      score:sort==='relevant'?relevanceScore(hit.text,parsed,{wholeWord}):0
+    }));
+    order.sort((a,b)=>(b.score-a.score) || direction*(a.time-b.time));
+    return order.map(({index})=>hits[index]);
+  }
   class MessageIndex {
     constructor(limit = 5000,onEvict=()=>{}) { this.limit = limit; this.rooms = new Map();this.redacted=new Map();this.onEvict=onEvict; }
-    upsert(room, messages,{dom=false,authoritative=false,redacted=[]}={}) {
-      messages=messages.filter(message=>!message.id?.startsWith('~'));
-      if(dom)messages=messages.filter(message=>!message.provisional);
+    upsert(room, messages,{dom=false,authoritative=false,redacted=[],saved=false}={}) {
+      const accepted=message=>!message.id?.startsWith('~') && !(dom && message.provisional);
       // Re-insert on every upsert so Map order is least-recently-used: the room on screen is never the one evicted.
       const index = this.rooms.get(room) || new Map();this.rooms.delete(room);this.rooms.set(room,index);
       if(!this.redacted.has(room))this.redacted.set(room,new Set());
@@ -452,11 +461,20 @@
       let speakers=this.speakers.get(room);
       const fresh=!speakers;
       if(fresh){speakers=new Map();this.speakers.set(room,speakers);}
-      for(const message of fresh?[...index.values(),...messages]:messages)if(message.sender) {
-        const previous=speakers.get(message.sender) || {};
-        speakers.set(message.sender,{...previous,...(named(message.author)?{author:message.author,authorHistorical:message.authorHistorical,authorUnavailable:message.authorUnavailable}:{}),authorSelf:message.authorSelf ?? previous.authorSelf,avatar:message.avatar || previous.avatar || ''});
-      }
-      for (const message of messages) if (message.id && message.text) {
+      const rememberSpeaker=message=>{
+        if(!message.sender)return;
+        const previous=speakers.get(message.sender);
+        const knownName=named(message.author),author=knownName?message.author:previous?.author;
+        const authorHistorical=knownName?message.authorHistorical:previous?.authorHistorical;
+        const authorUnavailable=knownName?message.authorUnavailable:previous?.authorUnavailable;
+        const authorSelf=message.authorSelf ?? previous?.authorSelf,avatar=message.avatar || previous?.avatar || '';
+        if(previous && previous.author===author && previous.authorHistorical===authorHistorical &&
+          previous.authorUnavailable===authorUnavailable && previous.authorSelf===authorSelf && previous.avatar===avatar)return;
+        speakers.set(message.sender,{sender:previous?.sender || message.sender,author,authorHistorical,authorUnavailable,authorSelf,avatar});
+      };
+      if(fresh)for(const message of index.values())rememberSpeaker(message);
+      for(const message of messages)if(accepted(message))rememberSpeaker(message);
+      for (const message of messages) if (message.id && message.text && accepted(message)) {
         if(removed.has(message.id))continue;
         const previous=index.get(message.id);
         const sameSender=!message.sender || !previous?.sender || message.sender===previous.sender;
@@ -465,14 +483,22 @@
         const speaker=speakers.get(message.sender || previous?.sender),identity=preserveHistorical || preserveNamed ? previous : !named(message.author) && named(speaker?.author) ? speaker : message;
         const authorSelf=message.authorSelf ?? (sameSender ? previous?.authorSelf : undefined) ?? speaker?.authorSelf;
         const preserveBody=dom && previous?.authoritative;
-        index.set(message.id,{...previous,...message,text:preserveBody ? previous.text : message.text,
-          author:authorSelf ? 'You' : identity.author || message.author || (sameSender ? previous?.author : '') || '',authorSelf,
+        const author=authorSelf ? 'You' : identity.author || message.author || (sameSender ? previous?.author : '') || '';
+        const avatar=message.avatar || (sameSender ? previous?.avatar : '') || speaker?.avatar || '';
+        // Only records that can be reconstructed from storage are released
+        // with a closed search. A subsequent native update keeps the record.
+        const provenance=saved && (!previous || previous.authoritative==='saved')?'saved':Boolean(authoritative || previous?.authoritative);
+        const record={...previous,...message,
+          ...(saved && message.roomId===room?{roomId:room}:{}),
+          text:preserveBody || previous?.text===message.text ? previous.text : message.text,
+          author:author===speaker?.author?speaker.author:author,authorSelf,
           authorHistorical:identity.authorHistorical ?? message.authorHistorical ?? (sameSender ? previous?.authorHistorical : undefined),
           authorUnavailable:message.authorUnavailable ?? identity.authorUnavailable ?? (sameSender ? previous?.authorUnavailable : undefined),
-          sender:message.sender || previous?.sender,thread:message.thread ?? previous?.thread,
-          avatar:message.avatar || (sameSender ? previous?.avatar : '') || speaker?.avatar || '',
+          sender:speaker?.sender || message.sender || previous?.sender,thread:message.thread ?? previous?.thread,
+          avatar:avatar===speaker?.avatar?speaker.avatar:avatar,
           timestamp:preserveBody ? previous.timestamp : message.timestamp || previous?.timestamp || '',
-          authoritative:authoritative || Boolean(previous?.authoritative)});
+          authoritative:provenance};
+        index.set(message.id,record);
       }
       while (index.size > this.limit) index.delete(index.keys().next().value);
       // Keep no more than 20 conversations in memory.
@@ -480,9 +506,15 @@
         const oldest=this.rooms.keys().next().value;this.rooms.delete(oldest);this.redacted.delete(oldest);this.speakers?.delete(oldest);this.onEvict(oldest);
       }
     }
+    releaseSaved(room){
+      const records=this.rooms.get(room);
+      if(records)for(const [id,record] of records)if(record.authoritative==='saved')records.delete(id);
+    }
     search(room, query,dates={},options={}) {
       const match=prepareQuery(query,{...options,dates});
-      return [...(this.rooms.get(room)?.values() ?? [])].filter(match);
+      const hits=[];
+      for(const message of this.rooms.get(room)?.values() || [])if(match(message))hits.push(message);
+      return hits;
     }
     replace(room,messages,metadata={}) {
       const previous=this.rooms.get(room);this.rooms.delete(room);if(previous)this.rooms.set(room,previous);
@@ -678,5 +710,5 @@
       matchFinal:buildEvaluator(false),
     };
   }
-  globalThis.RCSCore = Object.freeze({searchTips,normalize, matches, ranges, dateBounds, parseQuery, matchesText, matchRecord, toArchiveQuery, toRedditQuery, splitQuery, prepareQuery, compilePlan, foldedValue, wordAt, requiresBoundary, mediaKinds, mediaFlags, mediaQueryFlags, countMediaTypes, matchesQuery, highlightRanges, relevanceScore, messageSender, excerpt, compactTime, dayKey, dayLabel, messageTime, fullTimestamp, MessageIndex});
+  globalThis.RCSCore = Object.freeze({searchTips,normalize, matches, ranges, dateBounds, parseQuery, matchesText, matchRecord, toArchiveQuery, toRedditQuery, splitQuery, prepareQuery, compilePlan, foldedValue, wordAt, requiresBoundary, mediaKinds, mediaFlags, mediaQueryFlags, countMediaTypes, matchesQuery, highlightRanges, relevanceScore, messageSender, excerpt, compactTime, dayKey, dayLabel, messageTime, fullTimestamp, sortRoomHits, MessageIndex});
 })();

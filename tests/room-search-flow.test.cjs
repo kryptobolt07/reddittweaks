@@ -130,3 +130,21 @@ test('a saved-room read merges with what is in memory instead of dropping messag
   await p.search('kettle');await wait(40);
   assert.match(p.root.querySelector('.result')?.textContent || '',/kettle memory only/,'a message not yet saved stays searchable');
 });
+test('reopening room search reloads durable-only messages while preserving live matches and order',async t=>{
+  const p=setup(t);let reads=0;
+  p.w.RCSMessages={room:async()=>{
+    reads++;
+    return {records:[{id:'durable',author:'alex_morgan',text:'kettle from storage',timestamp:'2026-10-14T09:00:00Z'}]};
+  }};
+  p.w.document.dispatchEvent(new p.w.CustomEvent('rcs-history-changed',{detail:JSON.stringify({roomId:p.api.active.id,complete:false,records:[
+    {id:'memory',author:'alex_morgan',text:'kettle only in memory',timestamp:'2026-10-14T10:00:00Z'}
+  ]})}));
+  await p.search('kettle');
+  const previews=()=>Array.from(p.root.querySelectorAll('.result .preview'),row=>row.textContent);
+  const expected=['kettle only in memory','kettle from storage'],initialReads=reads;
+  assert.deepEqual(previews(),expected);
+  p.root.querySelector('.room-search-back').click();
+  await p.search('kettle');
+  assert.deepEqual(previews(),expected);
+  assert.ok(reads>initialReads);
+});

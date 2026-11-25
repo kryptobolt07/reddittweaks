@@ -26,6 +26,17 @@
   let directoryComplete = Boolean(globalThis.RCSDirectory?.getStartup?.().entry?.directoryComplete);
   const completeRooms = new Set();
   const controls = new Map();
+  function releaseSavedRoom(control,room=control.room){
+    if([...controls.values()].some(other=>other!==control && other.kind==='messages' && other.room===room && other.host.isConnected && !other.bar.hidden))return;
+    // A closed view can reload its durable records. Keep any live records,
+    // including those still waiting to be saved or available only in Reddit.
+    index.releaseSaved(room);
+  }
+  function sameRoomMeasurement(a,b){
+    return a===b || Boolean(a && b && a.text===b.text && a.author===b.author &&
+      (a.attachmentWidth ?? null)===(b.attachmentWidth ?? null) && (a.attachmentHeight ?? null)===(b.attachmentHeight ?? null) &&
+      (a.attachmentType ?? null)===(b.attachmentType ?? null));
+  }
   // Mobile routing can detach the sidebar. Retain its controller only within
   // the same document, authenticated account and native chat shell.
   const retainedLists = new Map();
@@ -242,7 +253,14 @@
         this.datePicker=new RCSDatePicker({
           chatMode:kind==='messages',
           getAnchor:()=>{const anchor=this.dateToggle.hidden?this.tools?.controlButtons?.filter:this.dateToggle;return (anchor || this.input.closest('.field') || this.dateChip).getBoundingClientRect();},
-          getAvailability:()=>({days:[...new Set([...(index.rooms.get(this.room)?.values() || [])].map(message=>{const date=new Date(message.timestamp);return Number.isFinite(date.getTime())?`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`:'';}).filter(Boolean))]}),
+          getAvailability:()=>{
+            const days=new Set();
+            for(const message of index.rooms.get(this.room)?.values() || []){
+              const date=new Date(message.timestamp);
+              if(Number.isFinite(date.getTime()))days.add(`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`);
+            }
+            return {days:[...days]};
+          },
           getBounds:()=>{const rect=this.container.getBoundingClientRect();if(!rect.width||!rect.height)return;return {left:rect.left,right:rect.right,top:Math.max(rect.top,this.host.getBoundingClientRect().bottom,A.query(A.selectors.header,this.container)?.getBoundingClientRect().bottom||rect.top),bottom:rect.bottom};},
           onChange:(dates,label,selection)=>{if(this.tools?.completeDateOperator?.(selection))return;this.cancelInput();this.resultsDismissed=false;this.dates=dates;this.dateLabel=label;this.dateCompleteKey='';this.active=-1;this.dataTask?.setDates?.(dates);if(!this.bar.hidden)this.ensureData();this.render();},
           onClose:restoreFocus=>{this.dateToggle.setAttribute('aria-expanded','false');this.render();if(restoreFocus)(this.dateToggle.hidden?this.dateChipLabel:this.dateToggle).focus({preventScroll:true});}
@@ -383,7 +401,6 @@
         this.cancelLoad();this.resetSaved();this.input.value='';this.notice='';this.render();
         if(this.isGlobal)this.ensureData();return;
       }
-      this.roomSavedKey='';
       if(this.isGlobal){
         if(!value.changed && !value.error && !value.roomIds)return;
         // Captures may arrive faster than the debounce. Keep one query alive,
@@ -391,7 +408,10 @@
         if(this.savedLoading){this.savedDirty=true;return;}
         this.savedKey='';if(this.browseOpen)this.querySaved(false,true);
       }
-      else if(this.kind==='messages' && !this.bar.hidden && (!value.roomIds || value.roomIds.includes(this.room)))this.queueRoomRead();
+      else if(this.kind==='messages' && !this.bar.hidden && (!value.roomIds || value.roomIds.includes(this.room))){
+        this.roomSavedKey='';
+        this.queueRoomRead();
+      }
     }
     querySaved(more=false,background=false,retryWrites=false){
       if(this.contextInvalidated || !this.isGlobal || C.parseQuery(this.queryValue()).invalid || more && (this.savedLoading || !this.savedHasMore))return;
@@ -425,21 +445,31 @@
     async readSavedRoom(){
       if(this.contextInvalidated || this.kind!=='messages' || !globalThis.RCSMessages)return;
       const room=this.room,generation=this.savedGeneration,key=`${generation}:${room}`;
+      if(this.roomSavedRead?.key===key)return this.roomSavedRead.promise;
       if(this.roomSavedKey===key)return this.roomSavedPromise;
       this.roomSavedKey=key;
-      this.roomSavedPromise=(async()=>{
+      const read={key,controller:new AbortController(),completed:false};
+      this.roomSavedRead=read;
+      read.promise=this.roomSavedPromise=(async()=>{
         try{
-          const result=await RCSMessages.room(room);
+          const result=await RCSMessages.room(room,{signal:read.controller.signal});
           if(generation!==this.savedGeneration || room!==this.room || !this.host.isConnected)return;
           if(this.savedOwner!==undefined && this.savedOwner!==result.owner)return;
+          read.completed=true;
           this.savedOwner=result.owner;
           // Merge, never prune: native history not yet saved, or events the capture buffer turned away, are only in
           // memory. Only a verified-complete native snapshot may drop messages (see the history load below).
-          index.upsert(room,result.records || [],{authoritative:true,redacted:result.redacted || []});
+          index.upsert(room,result.records || [],{authoritative:true,redacted:result.redacted || [],saved:true});
           // A stored boundary does not prove freshness after an offline gap.
           // Show saved data immediately; native history still verifies current coverage.
           if(!this.panel.hidden)this.render();
         }catch{if(this.roomSavedKey===key)this.roomSavedKey='';}
+        finally{
+          if(this.roomSavedRead===read){
+            this.roomSavedRead=null;
+            if(read.completed && this.roomSavedKey!==key && !this.bar.hidden && this.host.isConnected)this.queueRoomRead();
+          }
+        }
       })();
       return this.roomSavedPromise;
     }
@@ -451,7 +481,10 @@
       if(this.isGlobal)return;
       this.cancelInput();this.resultsDismissed=true;this.browseOpen=false;this.panel.hidden = true; this.input.setAttribute('aria-expanded', 'false');
     }
-    close(focus = true) { this.tools?.closeMenu?.();this.tools?.closeSuggestions?.();this.tools?.queryState?.clear();this.jumpTask?.cancel?.();clearTimeout(this.jumpRetry);this.navigationGeneration=(this.navigationGeneration || 0)+1;this.cancelLoad();if(this.appliedFilters)this.appliedFilters.hidden=true; this.input.value = '';if(this.datePicker){this.datePicker.close(false);this.datePicker.applied={mode:this.kind==='messages'?'On':'Between',start:'',end:''};this.dates={from:'',to:''};this.dateLabel='';this.dateChip.hidden=true;this.dateToggle.setAttribute('aria-expanded','false');} this.bar.hidden = true;this.syncHeaderSearch(); this.toggle.hidden = Boolean(this.trigger); this.host.hidden = Boolean(this.trigger); this.toggle.setAttribute('aria-expanded','false'); this.trigger?.setAttribute('aria-expanded','false'); this.dismiss(); if(focus) (this.trigger || this.toggle).focus(); }
+    close(focus = true) { this.tools?.closeMenu?.();this.tools?.closeSuggestions?.();this.tools?.queryState?.clear();this.jumpTask?.cancel?.();clearTimeout(this.jumpRetry);this.navigationGeneration=(this.navigationGeneration || 0)+1;this.cancelLoad();if(this.appliedFilters)this.appliedFilters.hidden=true; this.input.value = '';if(this.datePicker){this.datePicker.close(false);this.datePicker.applied={mode:this.kind==='messages'?'On':'Between',start:'',end:''};this.dates={from:'',to:''};this.dateLabel='';this.dateChip.hidden=true;this.dateToggle.setAttribute('aria-expanded','false');} this.bar.hidden = true;this.syncHeaderSearch(); this.toggle.hidden = Boolean(this.trigger); this.host.hidden = Boolean(this.trigger); this.toggle.setAttribute('aria-expanded','false'); this.trigger?.setAttribute('aria-expanded','false'); this.dismiss();
+      if(this.kind==='messages'){releaseSavedRoom(this);this.hits=[];this.clearRows();}
+      if(focus) (this.trigger || this.toggle).focus();
+    }
     restoreHeaderSearch(){const saved=this.hiddenHeader;if(!saved)return;const {header,display,priority}=saved;if(header.style.getPropertyValue('display')==='none' && header.style.getPropertyPriority('display')==='important'){if(display)header.style.setProperty('display',display,priority);else header.style.removeProperty('display');}this.hiddenHeader=null;this.host.removeAttribute('data-header-search');}
     syncHeaderSearch(){
       if(this.kind!=='messages')return;const header=A.query(A.selectors.header,this.container),active=!this.bar.hidden && Boolean(header);
@@ -491,7 +524,7 @@
       } else {
         const room = A.roomKey(this.container);
         if (this.room !== room) {
-          this.cancelLoad(); this.results.replaceChildren();this.rows.clear();this.room = room;this.dateCompleteKey=''; this.input.value = ''; this.active = -1; this.notice = '';
+          releaseSavedRoom(this);this.cancelLoad();this.hits=[];this.clearRows();this.room = room;this.dateCompleteKey=''; this.input.value = ''; this.active = -1; this.notice = '';
           this.complete = completeRooms.has(room) && index.rooms.has(room);
           if (!this.bar.hidden) this.close(false);
         }
@@ -514,12 +547,7 @@
       } else {const available=this.container.getBoundingClientRect().bottom-this.host.getBoundingClientRect().bottom;this.host.style.setProperty('--rcs-message-height',`${Math.max(110,available-55)}px`);this.host.style.setProperty('--rcs-room-results-height',`${available>0?Math.max(0,available):320}px`);this.host.style.setProperty('--rcs-calendar-height',`${Math.max(180,available-8)}px`);}
       if(this.meta)this.meta.hidden=false;
       const parsed=C.parseQuery(query),queryFeedback=globalThis.RCSGlobalSearchModel?.queryFeedback?.(parsed) || parsed.errors.join(' · ');
-      this.hits = parsed.invalid ? [] : this.isGlobal ? this.savedHits : this.kind === 'list' ? [...this.cache.values()].filter(entry => listMatch([entry.name,...(entry.aliases || []),...(entry.participants || []),entry.membership==='invite'?'chat request invitation':'',entry.accountUnavailable ? entry.accountState==='banned' ? 'banned suspended unavailable account' : 'deleted [deleted] unavailable account' : ''].join(' '), query)) : index.search(this.room, query,dates,this.queryOptions || {}).sort((a,b)=>{
-        const newest=(Date.parse(b.timestamp)||0)-(Date.parse(a.timestamp)||0);
-        if(this.queryOptions?.sort==='oldest')return -newest;
-        if(this.queryOptions?.sort==='relevant'){const score=record=>C.relevanceScore(record.text,query,{wholeWord:this.queryOptions?.wholeWord});return score(b)-score(a) || newest;}
-        return newest;
-      });
+      this.hits = parsed.invalid ? [] : this.isGlobal ? this.savedHits : this.kind === 'list' ? [...this.cache.values()].filter(entry => listMatch([entry.name,...(entry.aliases || []),...(entry.participants || []),entry.membership==='invite'?'chat request invitation':'',entry.accountUnavailable ? entry.accountState==='banned' ? 'banned suspended unavailable account' : 'deleted [deleted] unavailable account' : ''].join(' '), query)) : C.sortRoomHits(index.search(this.room,parsed,dates,this.queryOptions || {}),parsed,this.queryOptions);
       if(selected)this.active=this.hits.findIndex(hit=>this.rowKey(hit)===selected);
       if(this.kind==='list' && !this.isGlobal)this.hits=this.hits.filter(hit=>!(!hit.historicalName && ['[deleted]','Someone','Username unavailable'].includes(hit.name) && (hit.identityPending || !hit.accountUnavailable || this.loading)));
       const showing=this.kind==='list' ? this.isGlobal || this.browseOpen : Boolean(query || bounds.active || this.kind==='messages' && !this.bar.hidden && !this.resultsDismissed);
@@ -554,9 +582,10 @@
       const virtual=this.kind==='messages';let top=this.results.scrollTop;const oldAnchor=virtual && rebuild && this.roomWindowContext===signaturePrefix?this.roomItems?.find(item=>item.offset+item.height>top):null,oldWithin=oldAnchor?top-oldAnchor.offset:0;
       if(virtual && (rebuild || !this.roomItems || this.roomWindowContext!==signaturePrefix)){
         const style=getComputedStyle(this.host),base=parseFloat(style.getPropertyValue('--rcs-row-min-height')) || 64;let offset=0,previousDay=null;
+        this.roomMeasurements ||= new Map();
         this.roomItems=this.hits.map((hit,position)=>{const key=this.rowKey(hit),day=chronological?C.dayKey(hit.timestamp):null,heading=chronological && day!==previousDay;previousDay=day;const media=hit.attachmentType==='image'?globalThis.RCSMediaPreview?.fitSize({width:hit.attachmentWidth,height:hit.attachmentHeight}):null;
-          this.roomMeasurements ||= new Map();const measurement=this.roomMeasurements.get(key),measureKey=JSON.stringify([hit.text,hit.author,hit.attachmentWidth,hit.attachmentHeight,hit.attachmentType]);const rowHeight=measurement?.context===signaturePrefix && measurement.key===measureKey?measurement.height:Math.max(base,media?48+media.height:(hit.text || '').length>80?96:base);
-          const item={key,hit,measureKey,position,day,heading,rowHeight,offset,height:rowHeight+(heading?28:0)};offset+=item.height;return item;});this.roomTotalHeight=offset;this.roomWindowContext=signaturePrefix;if(oldAnchor){const anchor=this.roomItems.find(item=>item.key===oldAnchor.key);if(anchor)top=anchor.offset+oldWithin;}
+          const measurement=this.roomMeasurements.get(key),rowHeight=measurement?.context===signaturePrefix && sameRoomMeasurement(measurement.hit,hit)?measurement.height:Math.max(base,media?48+media.height:(hit.text || '').length>80?96:base);
+          const item={key,hit,position,day,heading,rowHeight,offset,height:rowHeight+(heading?28:0)};offset+=item.height;return item;});this.roomTotalHeight=offset;this.roomWindowContext=signaturePrefix;if(oldAnchor){const anchor=this.roomItems.find(item=>item.key===oldAnchor.key);if(anchor)top=anchor.offset+oldWithin;}
       }
       const lower=(value)=>{let lo=0,hi=this.roomItems.length;while(lo<hi){const mid=(lo+hi)>>>1,item=this.roomItems[mid];if(item.offset+item.height<=value)lo=mid+1;else hi=mid;}return lo;};
       const viewportAnchor=virtual?this.roomItems[lower(top)]:null,anchorWithin=viewportAnchor?top-viewportAnchor.offset:0;
@@ -642,7 +671,7 @@
         position=result.nextElementSibling;
       }
       if(virtual){const last=windowItems.at(-1);this.roomBottomSpacer.style.height=Math.max(0,last?this.roomTotalHeight-last.offset-last.height:0)+'px';if(Math.abs(this.results.scrollTop-top)>.5)this.results.scrollTop=top;
-        let changed=false;for(const item of windowItems){const row=this.rows.get(item.key);if(!row || !remeasure && row.measureKey===item.measureKey && row.measureContext===signaturePrefix)continue;const height=Math.ceil(row.result.getBoundingClientRect().height);if(!height)continue;row.measuredHeight=height;row.measureKey=item.measureKey;row.measureContext=signaturePrefix;this.roomMeasurements.set(item.key,{key:item.measureKey,context:signaturePrefix,height});while(this.roomMeasurements.size>5000)this.roomMeasurements.delete(this.roomMeasurements.keys().next().value);if(height!==item.rowHeight){item.rowHeight=height;item.height=height+(item.heading?28:0);changed=true;}}
+        let changed=false;for(const item of windowItems){const row=this.rows.get(item.key);if(!row || !remeasure && row.measureContext===signaturePrefix && sameRoomMeasurement(row.measuredHit,item.hit))continue;const height=Math.ceil(row.result.getBoundingClientRect().height);if(!height)continue;row.measuredHeight=height;row.measuredHit=item.hit;row.measureContext=signaturePrefix;this.roomMeasurements.set(item.key,{hit:item.hit,context:signaturePrefix,height});while(this.roomMeasurements.size>5000)this.roomMeasurements.delete(this.roomMeasurements.keys().next().value);if(height!==item.rowHeight){item.rowHeight=height;item.height=height+(item.heading?28:0);changed=true;}}
         if(changed){let offset=0;for(const item of this.roomItems){item.offset=offset;offset+=item.height;}this.roomTotalHeight=offset;const nextTop=viewportAnchor?viewportAnchor.offset+anchorWithin:top;this.roomBottomSpacer.style.height=offset+'px';this.results.scrollTop=nextTop;this.renderResults(query,bounds);return;}
       }
       if(this.isGlobal && !this.hits.length)this.results.append(node('div','empty',this.savedLoading ? 'Searching saved messages…' : this.notice || (this.savedStats?.messages ? 'No matching saved messages. Try another word.' : 'No saved messages yet. Messages Reddit loads will become searchable here.')));
@@ -701,6 +730,8 @@
     cancelLoad(showNotice=false) {
       this.cancelInput();
       if(showNotice)this.stoppedByUser=true;
+      this.roomSavedRead?.controller.abort();
+      this.roomSavedRead=null;
       this.savedGeneration++;clearTimeout(this.savedTimer);this.savedLoading=false;this.savedDirty=false;this.savedKey='';
       this.dataTask?.cancel();this.dataTask=null;this.loading=false;this.updateLoad();
       if(showNotice) {this.notice='Search stopped. Results may be incomplete.';this.render();}
@@ -748,7 +779,10 @@
       finally {if(this.dataTask===task){this.dataTask=null;this.loading=false;if(!globalThis.document || stopped)return;this.updateLoad();if(!this.panel.hidden)this.render();schedule();if(this.kind==='messages' && !this.bar.hidden && !this.notice && dateKey!==JSON.stringify(this.dates || {}) && !this.complete && this.dateCompleteKey!==JSON.stringify(this.dates || {}))this.ensureData();}}
     }
     clearRows(){this.roomItems=null;this.roomMeasurements?.clear();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();this.rows.clear();this.results.replaceChildren();}
-    destroy() { clearTimeout(this.resultsUpdateTimer);clearTimeout(this.roomReadTimer);this.roomReadTimer=null;this.restoreHeaderSearch();cancelAnimationFrame(this.scrollFrame);this.headerActions?.destroy();this.jumpTask?.cancel?.();clearTimeout(this.jumpRetry);this.navigationGeneration=(this.navigationGeneration || 0)+1;document.removeEventListener('keydown',this.shortcut,true);this.datePicker?.close(false);this.imageViewport=null;this.mediaView?.clear();A.releaseSearchLayer?.(this.host);this.tools?.destroy?.();this.savedUnsubscribe?.();this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside); this.host.remove(); this.triggerHost?.remove(); }
+    destroy() { clearTimeout(this.resultsUpdateTimer);clearTimeout(this.roomReadTimer);this.roomReadTimer=null;this.restoreHeaderSearch();cancelAnimationFrame(this.scrollFrame);this.headerActions?.destroy();this.jumpTask?.cancel?.();clearTimeout(this.jumpRetry);this.navigationGeneration=(this.navigationGeneration || 0)+1;document.removeEventListener('keydown',this.shortcut,true);this.datePicker?.close(false);this.imageViewport=null;this.mediaView?.clear();A.releaseSearchLayer?.(this.host);this.tools?.destroy?.();this.savedUnsubscribe?.();this.cancelLoad();this.resizeObserver?.disconnect();this.avatarObserver?.disconnect();this.pendingAvatarSources.clear();document.removeEventListener('pointerdown',this.outside);
+      if(this.kind==='messages'){releaseSavedRoom(this);this.hits=[];this.clearRows();}
+      this.host.remove();this.triggerHost?.remove();
+    }
   }
   globalThis.RCSDirectory?.onChange(value=>{
     if(value.accountChanged)clearRetainedLists();

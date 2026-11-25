@@ -122,13 +122,26 @@ test('IndexedDB write failure aborts transaction and preserves preceding saved d
   assert.equal((await store.search(owner)).total,1);
 });
 test('broker validates origins, restricts clearing to popup, aggregates stats and broadcasts changes',async()=>{
-  const listeners=[],broadcast=[],ctx=vm.createContext({indexedDB,IDBKeyRange,TextEncoder,console,crypto});
-  ctx.chrome={runtime:{id:'extension',getURL:path=>'chrome-extension://extension/'+path,onMessage:{addListener:fn=>listeners.push(fn)}},tabs:{query:async()=>[{id:1},{id:2}],sendMessage:async(id,value)=>broadcast.push({id,value})},storage:{local:{get:async()=>({}),set:async()=>{},remove:async()=>{},setAccessLevel:()=>{}},session:{get:async()=>({}),set:async()=>{},remove:async()=>{}}}};
+  const listeners=[],connections=[],broadcast=[],ctx=vm.createContext({indexedDB,IDBKeyRange,TextEncoder,console,crypto});
+  ctx.chrome={runtime:{id:'extension',getURL:path=>'chrome-extension://extension/'+path,onMessage:{addListener:fn=>listeners.push(fn)},onConnect:{addListener:fn=>connections.push(fn)}},tabs:{query:async()=>[{id:1},{id:2}],sendMessage:async(id,value)=>broadcast.push({id,value})},storage:{local:{get:async()=>({}),set:async()=>{},remove:async()=>{},setAccessLevel:()=>{}},session:{get:async()=>({}),set:async()=>{},remove:async()=>{}}}};
   ctx.importScripts=(...files)=>files.forEach(file=>vm.runInContext(fs.readFileSync(`extension/${file}`,'utf8'),ctx));
   vm.runInContext(fs.readFileSync('extension/cache-broker.js','utf8'),ctx);
   const send=(message,sender)=>new Promise(resolve=>listeners.find(listener=>listener({scope:'rcs-messages',...message},sender,resolve)));
   const tab={id:'extension',url:'https://chat.reddit.com/',tab:{id:1}},popup={id:'extension',url:'chrome-extension://extension/popup.html'};
   await send({...batch([event('$broker','hello')]),action:'ingest'},tab);
+  const stream=sender=>new Promise(resolve=>{
+    const received=[];let read;
+    connections[0]({sender,name:'rcs-room-snapshot',onDisconnect:{addListener(){}},
+      onMessage:{addListener(fn){read=fn;},removeListener(){}},
+      postMessage(packet){received.push(packet);if(!packet.records)resolve(received);}
+    });
+    read({owner,roomId});
+  });
+  const packets=await stream(tab);
+  assert.equal(packets[0].records.find(record=>record.id==='$broker').text,'hello');
+  assert.equal(packets.at(-1).ok,true);
+  const refused=await stream({...tab,url:'https://example.test/'});
+  assert.equal(refused.length,1);assert.equal(refused[0].ok,false);
   const stats=await send({action:'stats'},popup);assert.equal(stats.ok,true);assert.equal(stats.accounts>=1,true);assert.equal(stats.stats.messages>=1,true);
   assert.equal(broadcast.length,2);
   assert.equal((await send({action:'clear'},tab)).ok,false);
@@ -155,6 +168,24 @@ test('room reads use direct account-room key and deleted plaintext is removed fr
   const db=await store.db(),original=db.transaction.bind(db);db.transaction=(...args)=>{const tx=original(...args),get=tx.objectStore.bind(tx);tx.objectStore=name=>{const object=get(name);if(name==='rooms')object.getAll=()=>{throw Error('Individual room read scanned account');};return object;};return tx;};
   assert.equal((await store.search(owner,{roomId})).total,0);db.transaction=original;
   const restarted=new Store({name});const row=(await restarted.snapshot(owner,roomId)).rows[0];assert.equal(JSON.stringify(row).includes('confidential'),false);assert.ok(row.approxBytes>0);
+});
+test('saved room streams bounded packets from a consistent snapshot with exact ordinary read results',async t=>{
+  const {Store}=model(),store=new Store({name:crypto.randomUUID()});
+  t.after(async()=>{(await store.db()).close();});
+  const messages=Array.from({length:560},(_,i)=>event('$'+String(i).padStart(4,'0'),i===100?'https://example.test/test':'é'.repeat(240),1000+(i%80),{sender:i%2?owner:other}));
+  messages[1]=event('$0001','picture',1060,{sender:other,content:{body:'picture',msgtype:'m.image',url:'https://example.test/a.gif',info:{w:480,h:360,mimetype:'image/gif'}}});
+  for(let i=0;i<messages.length;i+=100)await store.ingest(batch(messages.slice(i,i+100)));
+  const before=await store.room(owner,roomId),records=[],sizes=[];
+  let concurrentWrite;
+  const result=await store.room(owner,roomId,undefined,{send:part=>{
+    sizes.push(part.length);records.push(...part);
+    concurrentWrite ||= store.ingest(batch([event('$new','after snapshot',9000)]));
+  }});
+  await concurrentWrite;
+  assert.deepEqual(sizes,[256,256,48]);
+  records.sort((a,b)=>Date.parse(b.timestamp)-Date.parse(a.timestamp) || a.id.localeCompare(b.id));
+  assert.deepEqual(JSON.parse(JSON.stringify({...result,records})),JSON.parse(JSON.stringify(before)));
+  assert.equal((await store.room(owner,roomId)).records[0].id,'$new');
 });
 test('search estimates sum cached bytes without encoding saved messages again',async()=>{
   let encodings=0;class CountingEncoder extends TextEncoder {encode(value){encodings++;return super.encode(value);}}
@@ -183,6 +214,49 @@ test('self profile remains available without matching self messages and resets a
   h.setActive(other);await api.room(roomId);assert.equal(api.getSelfIdentity(),null);
   h.setActive(owner);await api.search({});assert.equal(api.getSelfIdentity().id,owner);
   await h.store.clear(owner);h.change({scope:'rcs-messages-changed',owner,cleared:true});assert.equal(api.getSelfIdentity(),null);
+});
+test('saved room accepts all port packets together and discards a disconnected partial read',async t=>{
+  const h=clientHarness({marked:true}),runtime=h.win.chrome.runtime,api=h.win.RCSMessages;
+  t.after(()=>h.dom.window.close());
+  let disconnects=0,partial=true;
+  runtime.connect=({name})=>{
+    assert.equal(name,'rcs-room-snapshot');let message,closed;
+    return {
+      onMessage:{addListener(fn){message=fn;}},
+      onDisconnect:{addListener(fn){closed=fn;}},
+      postMessage(request){
+        assert.equal(request.owner,owner);assert.equal(request.roomId,roomId);
+        queueMicrotask(()=>{
+          message({records:[{id:'older',timestamp:'2026-10-08T19:00:00Z'}]});
+          if(partial){closed();return;}
+          message({records:[{id:'newer',timestamp:'2026-10-08T20:00:00Z'}]});
+          message({ok:true,result:{owner,total:2,coverage:{complete:false}}});
+        });
+      },
+      disconnect(){disconnects++;}
+    };
+  };
+  await assert.rejects(api.room(roomId),/connection closed/);
+  partial=false;
+  const result=await api.room(roomId);
+  assert.deepEqual(Array.from(result.records,r=>r.id),['newer','older']);
+  assert.equal(result.total,2);assert.equal(result.coverage.complete,false);
+  assert.equal(disconnects,2);assert.ok(!h.calls.includes('room'));
+});
+test('abandoning a room read closes its extension port immediately',async t=>{
+  const h=clientHarness({marked:true}),controller=new h.win.AbortController();
+  t.after(()=>h.dom.window.close());
+  let started,disconnected=false;
+  const reading=new Promise(resolve=>{started=resolve;});
+  h.win.chrome.runtime.connect=()=>({
+    onMessage:{addListener(){}},onDisconnect:{addListener(){}},
+    postMessage:started,disconnect(){disconnected=true;}
+  });
+  const read=h.win.RCSMessages.room(roomId,{signal:controller.signal});
+  await reading;
+  controller.abort();
+  await assert.rejects(read,{name:'AbortError'});
+  assert.equal(disconnected,true);
 });
 test('a stalled cache check settles its activity while committed results remain usable and Refresh retries',async t=>{
   let attempts=0;const h=clientHarness({nativeImport:async(_emit,progress)=>{attempts++;progress?.({loaded:12,scanned:20});if(attempts===1)await new Promise(()=>{});return {available:true};}});t.after(()=>h.dom.window.close());

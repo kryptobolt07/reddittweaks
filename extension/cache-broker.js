@@ -276,7 +276,7 @@ async function handleBackfillLease(message,sender) {
   }
   throw Error('Unknown backfill lease operation');
 }
-async function handleMessages(message,sender) {
+async function handleMessages(message,sender,sendRoomRecords) {
   if(sender.id!==chrome.runtime.id)throw Error('Invalid sender');
   const popup=isPopup(sender);
   if(!popup && !/^https:\/\/([a-z0-9-]+\.)*reddit\.com\//i.test(sender.url || sender.tab?.url || ''))throw Error('Invalid message origin');
@@ -306,7 +306,7 @@ async function handleMessages(message,sender) {
   if(message.action==='search-count')return messages.searchCount(message.owner,{...message,committed:true},await entryFor(message.owner));
   if(message.action==='room') {
     if(typeof message.roomId!=='string' || !message.roomId || message.roomId.length>1000)throw Error('Invalid room');
-    return messages.room(message.owner,message.roomId,await entryFor(message.owner),{committed:true});
+    return messages.room(message.owner,message.roomId,await entryFor(message.owner),{committed:true,send:sendRoomRecords});
   }
   throw Error('Unknown message operation');
 }
@@ -320,6 +320,24 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
   const reading=['search','search-count','room','stats','summaries','coverage','backfill-lease'].includes(message.action);
   const result=reading?handleMessages(message,sender):messageQueue.then(()=>handleMessages(message,sender));if(!reading)messageQueue=result.catch(()=>{});
   result.then(value=>respond({ok:true,...value}),error=>respond({ok:false,error:error?.message || 'Unable to save messages. Please retry.'}));return true;
+});
+
+chrome.runtime.onConnect?.addListener(port=>{
+  if(port.name!=='rcs-room-snapshot')return;
+  let closed=false;
+  port.onDisconnect.addListener(()=>{closed=true;});
+  const send=value=>{
+    if(closed)throw Error('Room snapshot reader disconnected');
+    port.postMessage(value);
+  };
+  const read=({owner,roomId}={})=>{
+    port.onMessage.removeListener(read);
+    handleMessages({action:'room',owner,roomId},port.sender,records=>send({records})).then(
+      result=>send({ok:true,result}),
+      error=>{if(!closed)send({ok:false,error:error?.message || 'Unable to read saved messages'});}
+    ).catch(()=>{});
+  };
+  port.onMessage.addListener(read);
 });
 
 /* Public post archives have their own bounded transport and never join chat queues. */

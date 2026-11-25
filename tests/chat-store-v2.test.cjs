@@ -16,6 +16,30 @@ function prng(seed=20261123){
   return ()=>{s=(s*16807)%2147483647;return (s-1)/2147483646;};
 }
 
+test('a large Unicode relevance query stays exact after redaction compacts the warm projection',async()=>{
+  const idb=new IDBFactory(),{M}=makeEnv(idb),store=new M.Store({indexedDB:idb,name:'projection-compaction'});
+  const owner='@t2_owner:reddit.com',roomId='!room:reddit.com';
+  const events=Array.from({length:2500},(_,i)=>({event_id:'$msg'+i,type:'m.room.message',sender:owner,
+    origin_server_ts:Date.UTC(2026,9,8,0,0,i),content:{body:i%2?'café café':'café au lait'}}));
+  for(let i=0;i<events.length;i+=500)await store.ingest({owner,roomId,events:events.slice(i,i+500)});
+  const params={query:'café',sort:'relevant',limit:500};
+  const before=await store.search(owner,params);
+  assert.equal(before.total,2500);
+  const projection=store.projections.get(owner);
+  const redactions=events.slice(0,2100).map(event=>({event_id:'$redact'+event.event_id,type:'m.room.redaction',redacts:event.event_id}));
+  for(let i=0;i<redactions.length;i+=500)await store.ingest({owner,roomId,events:redactions.slice(i,i+500)});
+  assert.equal(projection.count,2500);
+  const warm=await store.search(owner,params);
+  assert.equal(projection.count,400);
+  assert.equal(projection.capacity,512);
+  assert.equal(warm.total,400);
+  assert.equal((await store.searchCount(owner,{query:'café'})).certified,400);
+  store.projections.delete(owner);
+  const cold=await store.search(owner,params);
+  assert.deepEqual(warm,cold);
+  (await store.db()).close();
+});
+
 test('1,000 random queries over synthetic corpus with edits, redactions, threads, echoes, Unicode, renames and multiple accounts match brute-force oracle 100%',async()=>{
   const rand=prng(42);
   const pick=arr=>arr[Math.floor(rand()*arr.length)];
