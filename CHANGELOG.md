@@ -1,3 +1,12 @@
+# 0.67.3 preview
+
+- **Video overlays.** Paused feed videos, Media tiles, and the Media fullscreen viewer use the same centered Play button. Visual Search thumbnails and embed placeholders use the matching mark. Images and GIFs retain their own appearance.
+- **Media previews.** Hover and phone in-view previews start muted from the tile, including when Reddit places a poster over the player. The tile's Play button starts playback in place.
+- **Fullscreen Media viewer.** Rapid arrow-key or swipe navigation keeps your place when the grid refreshes or loads another page. Videos stay on their posters until playback starts, respect *Only when I press Play*, and try another Reddit source if the selected one fails.
+- **Patch increment.** This release fixes playback and navigation in existing media surfaces.
+- **Verification.** Signed-in Chrome Dev checks covered feed playback, desktop hover and keyboard navigation, and phone emulation with touch events. The viewer kept its place as Reddit added a page in both layouts. Live Firefox and physical touch devices were outside this check.
+- **Release checks.** All 2,487 tests passed. Both archives matched their unpacked builds, and Firefox lint reported zero warnings or errors.
+
 # 0.67.2 preview
 
 - **Profile and feed filters.** Changing or clearing a filter keeps Sort & filter in place when possible and returns to the controls if you scrolled past them. Switching from Deleted to All activity no longer follows a card down as the full list is restored.
