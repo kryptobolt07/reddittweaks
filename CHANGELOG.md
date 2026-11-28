@@ -1,3 +1,12 @@
+# 0.67.7 preview
+
+- **Playing search previews.** Media and Visual results carry the playing position into the fullscreen viewer or the native Reddit post player. Opening the post follows the selected Seamless post transition setting.
+- **Fullscreen Play button.** The button and loading ring disappear when the clip starts playing. Play is available when a clip needs a manual start.
+- **GIF playback.** Reddit GIF previews served as MP4 now use the GIF playback setting and stay muted. Poster-only results use the post’s media type when their source is loaded.
+- **Patch increment.** This release fixes playback and navigation in the existing Media and Visual viewers.
+- **Verification.** Signed-in Chrome Dev checked the reported GIF on desktop and in phone emulation, and verified Visual playback through fullscreen and when opening a post. Firefox 161 and Brave fixtures checked GIF playback and the fullscreen controls. The Firefox fixture also verified continuation into the post. Physical Android coverage is pending.
+- **Release checks.** All 2,496 tests passed. Both packages matched their unpacked builds, and Firefox lint reported zero warnings or errors.
+
 # 0.67.6 preview
 
 - **Legacy Reddit videos.** Media hover previews and fullscreen playback now accept Reddit video files named like `DASH_600_K`. Older posts can link to these MP4s without a filename extension.
