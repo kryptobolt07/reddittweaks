@@ -9,6 +9,19 @@
   const gif = '[gif], [post-type="gif"], [data-media-type="gif"]';
   const gifHosts = /^(?:preview|cf\.preview|external-preview)\.redd\.it$/i;
   const bindings = new WeakMap();
+  const reducedMotionMqls = new WeakMap();
+  const nativeSheets = new WeakMap();
+
+  function prefersReducedMotion(doc) {
+    const win = doc?.defaultView;
+    if (!win?.matchMedia) return false;
+    let mql = reducedMotionMqls.get(win);
+    if (!mql) {
+      mql = win.matchMedia('(prefers-reduced-motion: reduce)');
+      reducedMotionMqls.set(win, mql);
+    }
+    return Boolean(mql?.matches);
+  }
 
   function gifUrl(value) {
     if (typeof value !== 'string' || !/\.gif(?:[?#]|$)/i.test(value)) return null;
@@ -116,19 +129,38 @@
       borderRadius: '50%', boxSizing: 'border-box', pointerEvents: 'none'
     });
     control.append(ring);
-    if (!doc.defaultView?.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    if (!prefersReducedMotion(doc)) {
       ring.animate?.([{ transform: 'rotate(0deg)' }, { transform: 'rotate(360deg)' }], { duration: 800, iterations: Infinity });
     }
   }
 
-  function styleNative(root) {
-    if (!root || root.querySelector('style[data-rt-video-play]')) return;
-    const style = root.ownerDocument.createElement('style');
-    style.dataset.rtVideoPlay = '';
-    style.textContent = `.poster-play-button > svg[icon-name="play-fill"] {
+  const nativeStyleText = `.poster-play-button > svg[icon-name="play-fill"] {
       box-sizing: content-box; width: 32px; height: 32px; padding: 12px;
       background: ${background}; border-radius: 50%;
     }`;
+
+  function styleNative(root) {
+    if (!root) return;
+    const doc = root.ownerDocument;
+    const win = doc?.defaultView;
+    if (win?.CSSStyleSheet && Array.isArray(root.adoptedStyleSheets) && typeof win.CSSStyleSheet.prototype?.replaceSync === 'function') {
+      let sheet = nativeSheets.get(doc);
+      if (!sheet) {
+        try {
+          sheet = new win.CSSStyleSheet();
+          sheet.replaceSync(nativeStyleText);
+          nativeSheets.set(doc, sheet);
+        } catch { sheet = null; }
+      }
+      if (sheet) {
+        if (!root.adoptedStyleSheets.includes(sheet)) root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+        return;
+      }
+    }
+    if (root.querySelector('style[data-rt-video-play]')) return;
+    const style = doc.createElement('style');
+    style.dataset.rtVideoPlay = '';
+    style.textContent = nativeStyleText;
     root.append(style);
   }
 
