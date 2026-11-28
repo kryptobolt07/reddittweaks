@@ -1,3 +1,12 @@
+# 0.67.5 preview
+
+- **Media results with video thumbnails.** Reddit sometimes serves a Play badge and still image in place of the native tile player. These results now play on hover or on demand, and in the fullscreen viewer. The source is fetched only when playback is requested.
+- **Reddit preview files.** When a post has an HLS stream and no packaged MP4, the viewer can play the direct MP4 preview listed on Reddit’s player. Its resolution can be lower than the original post’s stream.
+- **Loading indicator.** The white ring around Play returns while a video loads or buffers before startup. It clears when playback starts or a playback attempt ends.
+- **Patch increment.** This release fixes how the existing Media viewer and previews handle Reddit’s thumbnail-only video results.
+- **Verification.** The missing player was reproduced on the signed-in Brave Media page. Brave decoded the reported HLS-only post’s 96p MP4 preview directly. A Brave fixture exercised the thumbnail-only playback path and navigation. Live verification of the full viewer requires reloading the unpacked extension in Brave.
+- **Release checks.** All 2,491 tests passed. Both archives matched their unpacked builds, and Firefox lint reported zero warnings or errors.
+
 # 0.67.4 preview
 
 - **Desktop previews.** Media tiles retry a stalled Reddit playback command on the same video. Visual previews follow an explicit hover setting with reduced motion enabled, and real mouse input can preview on touch-capable desktops.
