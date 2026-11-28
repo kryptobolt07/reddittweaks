@@ -49,12 +49,15 @@
   const playButton = mode === 'viewer' ? RTVideoOverlay.button(document, params.get('gif') === '1') : null;
   if (playButton) {
     playButton.hidden = true;
-    playButton.addEventListener('click', () => play());
+    playButton.addEventListener('click', () => { RTVideoOverlay.loading(playButton, true); play(); });
     document.body.append(playButton);
   }
   const blocked = error => {
     if (error?.name !== 'NotAllowedError') return;
-    if (playButton) playButton.hidden = false;
+    if (playButton) {
+      RTVideoOverlay.loading(playButton, false);
+      playButton.hidden = false;
+    }
     post('blocked');
   };
   const play = () => video.play().catch(error => {
@@ -65,7 +68,10 @@
   });
   video.addEventListener('playing', () => {
     document.body.dataset.playing = 'true';
-    if (playButton) playButton.hidden = true;
+    if (playButton) {
+      RTVideoOverlay.loading(playButton, false);
+      playButton.hidden = true;
+    }
     post('playing');
   });
   if (!deferred) play();

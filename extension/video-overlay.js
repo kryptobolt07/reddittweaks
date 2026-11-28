@@ -13,7 +13,7 @@
     try {
       const url = new URL(String(value || '').replace(/&amp;/gi, '&'));
       if (url.protocol === 'https:' && !url.username && !url.password && !url.port &&
-          /^(?:i|v|packaged-media|preview|cf\.preview|external-preview)\.redd\.it$/i.test(url.hostname) &&
+          /^(?:i|v|cf\.v|packaged-media|preview|cf\.preview|external-preview)\.redd\.it$/i.test(url.hostname) &&
           /\.(?:mp4|webm)$/i.test(url.pathname)) return url.href;
     } catch {}
     return '';
@@ -61,6 +61,32 @@
     return control;
   }
 
+  function loading(control, active) {
+    if (!control) return;
+    const existing = control.querySelector(':scope > [data-rt-video-loading]');
+    if (existing) {
+      if (!active) {
+        existing.getAnimations?.().forEach(animation => animation.cancel());
+        existing.remove();
+      }
+      return;
+    }
+    if (!active) return;
+    const doc = control.ownerDocument;
+    const ring = doc.createElement('span');
+    ring.dataset.rtVideoLoading = '';
+    ring.setAttribute('aria-hidden', 'true');
+    Object.assign(ring.style, {
+      position: 'absolute', inset: '-5px', border: '3px solid rgba(255,255,255,.32)',
+      borderTopColor: 'rgba(255,255,255,.94)', borderRightColor: 'rgba(255,255,255,.75)',
+      borderRadius: '50%', boxSizing: 'border-box', pointerEvents: 'none'
+    });
+    control.append(ring);
+    if (!doc.defaultView?.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      ring.animate?.([{ transform: 'rotate(0deg)' }, { transform: 'rotate(360deg)' }], { duration: 800, iterations: Infinity });
+    }
+  }
+
   function styleNative(root) {
     if (!root || root.querySelector('style[data-rt-video-play]')) return;
     const style = root.ownerDocument.createElement('style');
@@ -85,10 +111,14 @@
     previous?.dispose();
     const control = button(player.ownerDocument, isGif);
     control.hidden = !video.paused && video.readyState >= 2;
-    const hide = () => { control.hidden = true; };
-    const show = () => { if (video.paused || !video.readyState) control.hidden = false; };
+    const wait = () => { if (!control.hidden) loading(control, true); };
+    const hide = () => { loading(control, false); control.hidden = true; };
+    const show = () => { loading(control, false); if (video.paused || !video.readyState) control.hidden = false; };
+    const waitingEvents = ['play', 'waiting'];
+    const restingEvents = ['pause', 'ended', 'emptied', 'error'];
     video.addEventListener('playing', hide);
-    for (const event of ['pause', 'ended', 'emptied']) video.addEventListener(event, show);
+    for (const event of waitingEvents) video.addEventListener(event, wait);
+    for (const event of restingEvents) video.addEventListener(event, show);
     control.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
@@ -101,10 +131,12 @@
     root.append(control);
     bindings.set(player, { video, control, dispose() {
       video.removeEventListener('playing', hide);
-      for (const event of ['pause', 'ended', 'emptied']) video.removeEventListener(event, show);
+      for (const event of waitingEvents) video.removeEventListener(event, wait);
+      for (const event of restingEvents) video.removeEventListener(event, show);
+      loading(control, false);
       control.remove();
     } });
   }
 
-  globalThis.RTVideoOverlay = Object.freeze({ mark, center, button, styleNative, bindPlayer, redditVideo, searchTile, searchPlayer, gif });
+  globalThis.RTVideoOverlay = Object.freeze({ mark, center, button, loading, styleNative, bindPlayer, redditVideo, searchTile, searchPlayer, gif });
 })();

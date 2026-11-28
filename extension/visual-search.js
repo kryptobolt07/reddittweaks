@@ -229,6 +229,9 @@
   }
 
   const NATIVE_MEDIA_TILE = Overlay.searchTile;
+  const NATIVE_MEDIA_PLAYER = 'shreddit-player, shreddit-player-2';
+  const POSTER_VIDEO = '.search-media-post-image:has(.button-media svg[icon-name="play-fill"])';
+  const PREVIEW_TILE = '.rt-vs-media[data-video-url], [data-rt-native-video]';
   const redditMedia = u => {
     try {
       const url = new URL(String(u || '').replace(/&amp;/gi, '&'));
@@ -247,12 +250,13 @@
     const video = player.shadowRoot?.querySelector('video');
     const preview = player.shadowRoot?.querySelector('shreddit-media-ui')?.getAttribute('preview');
     return [...new Set([...usable.map(p => p.url), ...[
-      video?.currentSrc, video?.getAttribute('src'), player.getAttribute('src'), preview,
+      video?.currentSrc, video?.getAttribute('src'), player.getAttribute('src'), player.getAttribute('preview'), preview,
       ...[...(video?.querySelectorAll('source[src]') || [])].map(node => node.getAttribute('src'))
     ].map(Overlay.redditVideo).filter(Boolean)])];
   }
   function nativeTileTime(tile) {
-    const video = tile?.querySelector(Overlay.searchPlayer)?.shadowRoot?.querySelector('video');
+    const video = tile?.querySelector(Overlay.searchPlayer)?.shadowRoot?.querySelector('video') ||
+      tile?.querySelector('[data-rt-native-video] .rt-vs-video');
     return video && !video.paused && Number.isFinite(video.currentTime) ? video.currentTime : 0;
   }
   // One of Reddit's Media tab tiles as a viewer item.
@@ -267,7 +271,8 @@
     const img = tile.querySelector('img[data-post-media-primary]') || tile.querySelector('img:not(.post-background-image-filter)');
     // A gallery can contain its own hidden video. Only a search-results player is the tile's video preview.
     const player = tile.querySelector(Overlay.searchPlayer);
-    if ((player || img)?.closest('shreddit-blurred-container[blurred]')) return null;
+    const posterVideo = player ? null : link.querySelector(POSTER_VIDEO);
+    if ((player || posterVideo || img)?.closest('shreddit-blurred-container[blurred]')) return null;
     const poster = redditMedia(player?.getAttribute('poster'))?.href || redditMedia(img?.currentSrc || img?.getAttribute('src'))?.href || '';
     const sources = player ? nativeVideoSources(player) : [];
     if (!poster && !player) return null;
@@ -275,7 +280,27 @@
     try { context = JSON.parse(tile.querySelector('[data-faceplate-tracking-context]')?.getAttribute('data-faceplate-tracking-context') || 'null'); } catch {}
     const title = String(context?.post?.title || link.querySelector('faceplate-screen-reader-content')?.textContent || '').trim().slice(0, 300);
     const subreddit = m[1].toLowerCase() === 'user' ? 'u_' + m[2] : m[2];
-    return { native: true, tile, uuid: 'native:' + m[3].toLowerCase(), postId: m[3].toLowerCase(), permalink, title, subreddit, src: poster, thumb: poster, sources, isVideo: Boolean(player), isGif: Boolean(player?.closest(Overlay.gif)), fallbackImageUrl: poster };
+    return { native: true, tile, uuid: 'native:' + m[3].toLowerCase(), postId: m[3].toLowerCase(), permalink, title, subreddit, src: poster, thumb: poster, sources, posterVideo, isVideo: Boolean(player || posterVideo), isGif: Boolean((player || posterVideo)?.closest(Overlay.gif)), fallbackImageUrl: poster };
+  }
+  // Some Media pages supply only a Play badge and poster. Read the post's actual player when requested.
+  async function readNativeVideo(item) {
+    const fullname = 't3_' + item.postId;
+    const partial = '/svc/shreddit/partial-feed-post/' + fullname;
+    for (const path of [partial, new URL(item.permalink, location.origin).pathname]) {
+      try {
+        const accept = path === partial ? 'text/vnd.reddit.partial+html, text/html;q=0.9' : 'text/html';
+        const response = await fetch(path, { credentials: 'same-origin', headers: { Accept: accept }, signal: AbortSignal.timeout(8000) });
+        if (response.status === 403 || response.status === 429) return [];
+        if (!response.ok) continue;
+        const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+        const post = doc.querySelector('shreddit-post[id="' + fullname + '"]');
+        const player = post?.querySelector('[slot="post-media-container"] :is(' + NATIVE_MEDIA_PLAYER + '), :is(' + NATIVE_MEDIA_PLAYER + ')[post-id="' + fullname + '"]');
+        if (!player || player.closest('shreddit-blurred-container[blurred]')) continue;
+        const sources = nativeVideoSources(player);
+        if (sources.length) return sources;
+      } catch {}
+    }
+    return [];
   }
   function nativeMediaItems(feed) {
     return [...(feed?.querySelectorAll?.(NATIVE_MEDIA_TILE) || [])].map(nativeMediaItem).filter(Boolean);
@@ -447,6 +472,7 @@
       this.hoveredPreview = null;
       this.videoBlobs = new Map();
       this.videoFetches = new Map();
+      this.nativeVideoLookups = new Map();
       this.players = new Map();
       this.playerSeq = 0;
       this.framePlayback = null;
@@ -486,7 +512,7 @@
       };
       this.onScrollPause = () => {
         if (this.hoveredPreview) this.checkVideoVisibility();
-        if (this.host?.isConnected) this.settlePreviews();
+        if (this.host?.isConnected || this.nativePosterPreviews) this.settlePreviews();
         // Embeds draw their players inside their own shadow roots, which the page observer can't see: look again for
         // posts that had no picture yet once scrolling rests.
         if (this.mediaLensEnabled) {
@@ -584,6 +610,7 @@
       if (!nextMenu) this.teardownPostMenus();
       if (!nextLens) this.teardownMediaLenses();
       if (changed) this.sync();
+      else if (this.nativePosterPreviews) this.settlePreviews();
     }
 
     async loadSettings(attempt = 0) {
@@ -2499,8 +2526,9 @@
     // How a tile's clip may start, from the reader's video and GIF start choices: 'hover' with a mouse, 'stop' (the one
     // you stop on) with touch, 'auto' (in view) for Autoplay, 'none' for Only when I press Play.
     previewMode(media, mouse = false) {
-      const mode = this.mediaChoice?.[media?.dataset?.kind === 'gif' ? 'gif' : 'video'] || 'default';
-      if (mode === 'play' || mode === 'default' && reducedMotion()) return 'none';
+      const kind = media?.dataset.rtNativeVideo || media?.dataset.kind;
+      const mode = this.mediaChoice?.[kind === 'gif' ? 'gif' : 'video'] || 'default';
+      if (mode === 'play' || mode === 'default' && (reducedMotion() || media?.hasAttribute('data-rt-native-video'))) return 'none';
       if (mode === 'autoplay') return 'auto';
       return mouse || canHover() ? 'hover' : 'stop';
     }
@@ -2511,6 +2539,7 @@
       this.hoveredPreview = null;
       clearTimeout(cur.timer);
       cur.cancelActivation?.();
+      Overlay.loading(cur.overlay, false);
       delete cur.media?.dataset?.previewing;
       if (cur.media) this.videoIO?.unobserve?.(cur.media);
       if (cur.player) this.dropPlayer(cur.player);
@@ -2563,41 +2592,80 @@
       return job;
     }
 
+    resolveNativeSources(item) {
+      if (item.sources.length) return Promise.resolve(item.sources);
+      const account = document.querySelector('shreddit-app')?.getAttribute('logged-in-user-id') || '';
+      const key = account + ':' + item.postId;
+      const existing = this.nativeVideoLookups.get(key);
+      if (existing?.expires > Date.now()) return existing.promise;
+      if (this.nativeVideoLookups.size >= 20) this.nativeVideoLookups.delete(this.nativeVideoLookups.keys().next().value);
+      const entry = { expires: Date.now() + 5 * 60_000 };
+      entry.promise = readNativeVideo(item).then(sources => {
+        if (!sources.length) entry.expires = Date.now() + 1500;
+        return sources;
+      });
+      this.nativeVideoLookups.set(key, entry);
+      return entry.promise;
+    }
+
     // Plays one tile's clip muted and looping in place; starting another stops the first. Streams through a player
     // frame when it can, else downloads the clip as a blob: (bounded, see the broker).
     startPreview(media, { delay = 0, manual = false } = {}) {
-      if (!media?.dataset?.videoUrl || !media.isConnected) return;
-      if (this.hoveredPreview?.media === media) return;
+      if (!media?.matches(PREVIEW_TILE) || !media.isConnected) return;
+      if (this.hoveredPreview?.media === media) {
+        if (manual) {
+          this.hoveredPreview.manual = true;
+          this.hoveredPreview.cancelActivation?.();
+          this.hoveredPreview.retry?.();
+        }
+        return;
+      }
       this.stopVideoPreview();
       const videoUrl = media.dataset.videoUrl;
-      const entry = { media, videoUrl, video: null, player: null, manual, timer: 0 };
+      const native = media.hasAttribute('data-rt-native-video');
+      const overlay = media.querySelector('[data-rt-ui="native-media-play"], .rt-vs-video-mark');
+      const entry = { media, videoUrl, video: null, player: null, manual, timer: 0, overlay };
       this.hoveredPreview = entry;
       const playing = () => {
         if (this.hoveredPreview !== entry) return;
         entry.cancelActivation?.();
+        Overlay.loading(overlay, false);
         media.dataset.previewing = 'playing';
       };
-      const playBlob = () => {
-        entry.video.play?.().then(playing, error => {
+      const direct = sources => {
+        if (this.dead || this.hoveredPreview !== entry || !media.isConnected) return;
+        if (!sources.length) { this.previewFailed(entry); return; }
+        const video = make('video', 'rt-vs-video');
+        video.muted = true;
+        video.loop = true;
+        video.playsInline = true;
+        video.setAttribute('aria-hidden', 'true');
+        entry.video = video;
+        let index = 0;
+        const next = () => {
           if (this.hoveredPreview !== entry) return;
-          if (error?.name === 'NotAllowedError') this.waitForPreviewActivation(entry, playBlob);
+          if (++index < sources.length) { video.src = sources[index]; play(); }
           else this.previewFailed(entry);
-        });
+        };
+        const play = () => {
+          Overlay.loading(overlay, true);
+          const src = video.src;
+          video.play()?.then(playing, error => {
+            if (this.hoveredPreview !== entry || video.src !== src) return;
+            if (error?.name === 'NotAllowedError') this.waitForPreviewActivation(entry, play);
+            else if (!video.error) next();
+          });
+        };
+        video.addEventListener('error', next);
+        entry.retry = play;
+        video.src = sources[0];
+        media.append(video);
+        this.videoIO?.observe?.(media);
+        play();
       };
       const viaBlob = async () => {
         try {
-          const objUrl = await this.getVideoBlobUrl(videoUrl);
-          if (this.dead || this.hoveredPreview !== entry || !media.isConnected) return;
-          const video = make('video', 'rt-vs-video');
-          video.muted = true;
-          video.loop = true;
-          video.playsInline = true;
-          video.setAttribute('aria-hidden', 'true');
-          video.src = objUrl;
-          entry.video = video;
-          media.append(video);
-          this.videoIO?.observe?.(media);
-          playBlob();
+          direct([await this.getVideoBlobUrl(videoUrl)]);
         } catch {
           if (this.hoveredPreview === entry) this.previewFailed(entry);
         }
@@ -2605,6 +2673,13 @@
       const run = () => {
         if (this.dead || this.hoveredPreview !== entry || !media.isConnected || document.visibilityState === 'hidden') return;
         media.dataset.previewing = 'loading';
+        Overlay.loading(overlay, true);
+        if (native) {
+          const item = nativeMediaItem(media.closest(NATIVE_MEDIA_TILE));
+          if (item?.posterVideo === media) this.resolveNativeSources(item).then(direct);
+          else this.previewFailed(entry);
+          return;
+        }
         const player = this.makePlayerFrame(videoUrl, {
           mode: 'preview',
           onMessage: msg => {
@@ -2616,7 +2691,10 @@
               return;
             }
             if (msg.type === 'playing' || msg.type === 'time' && !msg.paused) playing();
-            else if (msg.type === 'blocked') this.waitForPreviewActivation(entry, () => this.commandPlayer(player, 'play'));
+            else if (msg.type === 'blocked') this.waitForPreviewActivation(entry, () => {
+              Overlay.loading(overlay, true);
+              this.commandPlayer(player, 'play');
+            });
           }
         });
         if (!player) { viaBlob(); return; }
@@ -2630,6 +2708,7 @@
 
     waitForPreviewActivation(entry, play) {
       if (entry.cancelActivation) return;
+      Overlay.loading(entry.overlay, false);
       delete entry.media.dataset.previewing;
       const cancel = () => {
         for (const type of ['pointerup', 'keydown']) window.removeEventListener(type, retry, true);
@@ -2658,7 +2737,7 @@
     handlePointerOver(event) {
       if (!this.enabled || this.lightbox || event.pointerType !== 'mouse' || event.buttons) return;
       const wrap = event.target?.closest?.('[data-rt-ui="visual-search"] .rt-vs-media-wrap');
-      const media = wrap?.querySelector?.('.rt-vs-media[data-video-url]');
+      const media = wrap?.querySelector?.(PREVIEW_TILE) || event.target?.closest?.('[data-rt-native-video]');
       if (!media || this.hoveredPreview?.media === media || this.previewMode(media, true) !== 'hover') return;
       this.startPreview(media, { delay: HOVER_PREVIEW_MS });
       if (this.hoveredPreview?.media === media) this.hoveredPreview.mouse = true;
@@ -2666,8 +2745,8 @@
 
     handlePointerOut(event) {
       const cur = this.hoveredPreview;
-      if (!cur?.mouse || event.pointerType !== 'mouse') return;
-      const wrap = cur.media.closest('.rt-vs-media-wrap') || cur.media;
+      if (!cur?.mouse || cur.manual || event.pointerType !== 'mouse') return;
+      const wrap = cur.media.closest('.rt-vs-media-wrap, ' + NATIVE_MEDIA_TILE) || cur.media;
       if (wrap.contains(event.target) && !(event.relatedTarget?.nodeType && wrap.contains(event.relatedTarget))) this.stopVideoPreview();
     }
 
@@ -2675,17 +2754,19 @@
     // clip keeps going while it stays at least half visible (the same rule as Reddit feeds in video-control.js).
     settlePreviews() {
       clearTimeout(this.settleTimer);
-      if (!this.enabled || !this.host?.isConnected || this.state?.status !== 'ready') return;
-      const any = this.host.querySelector('.rt-vs-media[data-video-url]');
-      if (!any) return;
-      const modes = new Set([...this.host.querySelectorAll('.rt-vs-media[data-video-url]')].slice(0, 60).map(m => this.previewMode(m)));
+      if (!this.enabled || this.lightbox) return;
+      const root = this.previewRoot();
+      if (!root) return;
+      const modes = new Set([...root.querySelectorAll(PREVIEW_TILE)].slice(0, 60).map(m => this.previewMode(m)));
       const wait = modes.has('auto') ? AUTO_PREVIEW_MS : modes.has('stop') ? DWELL_PREVIEW_MS : 0;
       if (!wait) return;
       this.settleTimer = setTimeout(() => this.pickInView(), wait);
     }
 
     pickInView() {
-      if (this.dead || !this.enabled || !this.host?.isConnected || document.visibilityState === 'hidden' || this.lightbox) return;
+      if (this.dead || !this.enabled || document.visibilityState === 'hidden' || this.lightbox) return;
+      const root = this.previewRoot();
+      if (!root) return;
       const height = window.innerHeight || 800;
       const visible = media => {
         const r = media.getBoundingClientRect();
@@ -2696,7 +2777,7 @@
       if (cur?.manual && cur.media.isConnected && visible(cur.media) >= 0.5) return;
       if (cur && cur.media.isConnected && (cur.mouse || ['auto', 'stop'].includes(this.previewMode(cur.media))) && visible(cur.media) >= 0.5) return;
       let best = null, distance = Infinity;
-      for (const media of this.host.querySelectorAll('.rt-vs-media[data-video-url]')) {
+      for (const media of root.querySelectorAll(PREVIEW_TILE)) {
         const mode = this.previewMode(media);
         if (mode !== 'auto' && mode !== 'stop') continue;
         if (visible(media) < 0.6) continue;
@@ -2708,12 +2789,18 @@
       else if (cur && !cur.manual && this.previewMode(cur.media) !== 'hover') this.stopVideoPreview();
     }
 
+    previewRoot() {
+      if (this.host?.isConnected && this.state?.status === 'ready') return this.host;
+      return this.nativePosterPreviews?.isConnected ? this.nativePosterPreviews : null;
+    }
+
     closeLightbox({ restoreFocus = true } = {}) {
       const cur = this.lightbox;
       if (!cur) return;
       this.lightbox = null;
       if (cur.player) this.dropPlayer(cur.player);
       this.stopViewerVideo(cur);
+      Overlay.loading(cur.dialog.querySelector('.rt-vs-viewer-stage > [data-rt-video-play]'), false);
       document.removeEventListener('keydown', cur.onKey, true);
       try { cur.dialog?.close?.(); } catch {}
       cur.dialog?.remove();
@@ -2725,7 +2812,7 @@
         if (target?.isConnected) target.focus({ preventScroll: true });
       }
       document.dispatchEvent(new Event('rt-media-viewer-state'));
-      if (this.host?.isConnected) this.settlePreviews();
+      if (this.host?.isConnected || this.nativePosterPreviews) this.settlePreviews();
     }
 
     stopViewerVideo(st) {
@@ -2881,6 +2968,7 @@
           subEl.href = isUser ? '/user/' + encodeURIComponent(it.subreddit.slice(2)) + '/' : '/r/' + encodeURIComponent(it.subreddit) + '/';
         } else subEl.removeAttribute('href');
         syncNav();
+        Overlay.loading(stage.querySelector('[data-rt-video-play]'), false);
         stage.replaceChildren();
         delete stage.dataset.playing;
         delete stage.dataset.frameInteraction;
@@ -2963,15 +3051,20 @@
       let requested = this.mediaChoice[item.isGif ? 'gif' : 'video'] !== 'play' || time > 0;
       let painted = false, pressed = false, start = null;
       const begin = () => {
-        if (active() && requested && (painted || pressed)) start?.();
+        if (active() && requested && (painted || pressed) && start) {
+          Overlay.loading(control, true);
+          start();
+        }
       };
       const playing = () => {
         stage.dataset.playing = 'true';
         delete stage.dataset.frameInteraction;
+        Overlay.loading(control, false);
         control.hidden = true;
         note.remove();
       };
       const failure = () => {
+        Overlay.loading(control, false);
         control.hidden = false;
         delete stage.dataset.playing;
         delete stage.dataset.frameInteraction;
@@ -3014,15 +3107,18 @@
             if (!current() || video.src !== src) return;
             if (error?.name === 'NotAllowedError' && !video.muted) {
               video.muted = true;
-              video.play()?.catch(() => {});
+              video.play()?.catch(() => { if (current()) Overlay.loading(control, false); });
             } else if (error?.name === 'NotSupportedError' && !video.error) nextSource();
+            else Overlay.loading(control, false);
           });
         };
         video.addEventListener('loadedmetadata', () => {
           if (time > 0 && time < video.duration) video.currentTime = time;
         });
         video.addEventListener('playing', () => { if (current()) playing(); });
-        video.addEventListener('pause', () => { if (current()) control.hidden = false; });
+        video.addEventListener('pause', () => {
+          if (current()) { Overlay.loading(control, false); control.hidden = false; }
+        });
         video.addEventListener('error', nextSource);
         stage.append(video);
         video.src = sources[0];
@@ -3039,6 +3135,7 @@
             else if (msg.type === 'blocked') {
               // A click inside the player frame carries user activation even when the browser blocks autoplay.
               stage.dataset.frameInteraction = 'true';
+              Overlay.loading(control, false);
               if (document.activeElement === control) this.commandPlayer(player, 'focus-play');
               control.hidden = true;
             } else if (msg.type === 'swipe' || msg.type === 'navigate') {
@@ -3076,23 +3173,31 @@
       };
 
       let frameSource = 0;
+      let sources = item.sources;
       const nativeFrame = () => {
-        framed(item.sources[frameSource], reason => {
-          if (reason !== 'unavailable' && ++frameSource < item.sources.length) nativeFrame();
+        framed(sources[frameSource], reason => {
+          if (reason !== 'unavailable' && ++frameSource < sources.length) nativeFrame();
           else { start = native; failure(); }
         });
       };
       const native = () => {
         note.remove();
         frameSource = 0;
-        direct(item.sources, nativeFrame);
+        direct(sources, nativeFrame);
       };
       if (!item.native) framed(item.videoUrl, blob);
       else if (item.sources.length) native();
       else {
-        control.hidden = true;
-        note.textContent = 'Video unavailable. Open the post to watch.';
-        stage.append(note);
+        const lookup = async () => {
+          start = null;
+          note.textContent = 'Loading video…';
+          stage.append(note);
+          sources = await this.resolveNativeSources(item);
+          if (!active()) return;
+          if (sources.length) native();
+          else { start = lookup; failure(); }
+        };
+        start = lookup;
       }
     }
 
@@ -3577,8 +3682,8 @@
     startHold(event, path) {
       this.endHold(false);
       if (event.button > 0 || event.isPrimary === false) return;
-      const media = path.find(node => node?.classList?.contains?.('rt-vs-media'));
-      if (!media?.dataset?.videoUrl || !this.host?.contains(media) || path.some(node => node?.classList?.contains?.('rt-vs-overlay-actions') || node?.classList?.contains?.('rt-vs-more-btn'))) return;
+      const media = path.find(node => node?.matches?.(PREVIEW_TILE));
+      if (!media || !this.previewRoot()?.contains(media) || path.some(node => node?.matches?.('.rt-vs-overlay-actions, .rt-vs-more-btn'))) return;
       const hold = { media, x: event.clientX, y: event.clientY, engaged: false, keep: this.hoveredPreview?.media === media, timer: 0 };
       hold.timer = setTimeout(() => {
         if (this.hold !== hold || this.dead || !media.isConnected) return;
@@ -3597,13 +3702,17 @@
       if (!hold.engaged) return;
       delete hold.media.dataset.held;
       // The lift that ends a hold is not a tap on the result.
-      if (released) this.suppressClickUntil = performance.now() + 500;
+      if (released) {
+        this.suppressClickUntil = performance.now() + 500;
+        this.suppressClickTarget = hold.media.closest(NATIVE_MEDIA_TILE) || this.host;
+      }
       if (!hold.keep && this.hoveredPreview?.media === hold.media) this.stopVideoPreview();
     }
 
     handleDocClick(event) {
-      if (this.enabled && performance.now() < (this.suppressClickUntil || 0) && this.host && event.composedPath?.().includes(this.host)) {
+      if (this.enabled && performance.now() < (this.suppressClickUntil || 0) && event.composedPath?.().includes(this.suppressClickTarget)) {
         this.suppressClickUntil = 0;
+        this.suppressClickTarget = null;
         event.preventDefault();
         event.stopImmediatePropagation();
         return;
@@ -3843,12 +3952,41 @@
 
     syncNativeMediaViewer() {
       const feed = document.querySelector('search-media-feed');
-      if (!feed || Model.parseVisualUrl(location.href)?.active) return;
+      if (!feed || Model.parseVisualUrl(location.href)?.active) {
+        this.nativePosterPreviews = null;
+        if (this.hoveredPreview?.media.hasAttribute('data-rt-native-video')) this.stopVideoPreview();
+        return;
+      }
       this.lightbox?.refreshNative?.();
+      let addedPoster = false;
       for (const tile of feed.querySelectorAll(NATIVE_MEDIA_TILE)) {
-        Overlay.bindPlayer(tile.querySelector(Overlay.searchPlayer));
-        if (tile.querySelector(':scope [data-rt-ui="native-media-expand"]')) continue;
-        if (!nativeMediaItem(tile)) continue;
+        const player = tile.querySelector(Overlay.searchPlayer);
+        Overlay.bindPlayer(player);
+        const marked = tile.querySelector('[data-rt-native-video]');
+        const poster = !player && tile.querySelector(POSTER_VIDEO);
+        if (marked && marked !== poster) {
+          if (this.hoveredPreview?.media === marked) this.stopVideoPreview();
+          delete marked.dataset.rtNativeVideo;
+          marked.querySelector('[data-rt-ui="native-media-play"]')?.remove();
+        }
+        const expand = tile.querySelector('[data-rt-ui="native-media-expand"]');
+        if (expand && (!poster || marked === poster)) continue;
+        const item = nativeMediaItem(tile);
+        if (!item) continue;
+        if (item.posterVideo && marked !== item.posterVideo) {
+          const media = item.posterVideo;
+          media.dataset.rtNativeVideo = item.isGif ? 'gif' : 'video';
+          const play = Overlay.button(document, item.isGif);
+          play.dataset.rtUi = 'native-media-play';
+          play.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            this.startPreview(media, { manual: true });
+          });
+          media.append(play);
+          addedPoster = true;
+        }
+        if (expand) continue;
         const btn = make('button', 'rt-vs-icon-btn rt-vs-native-expand');
         btn.type = 'button';
         btn.dataset.rtUi = 'native-media-expand';
@@ -3866,10 +4004,15 @@
         // On the tile itself, beside Reddit's link rather than inside it (most tiles are one link around everything).
         tile.append(btn);
       }
+      this.nativePosterPreviews = feed.querySelector('[data-rt-native-video]') ? feed : null;
+      if (addedPoster) this.settlePreviews();
     }
 
     teardownNativeMediaViewer() {
-      for (const btn of document.querySelectorAll('[data-rt-ui="native-media-expand"]')) btn.remove();
+      for (const btn of document.querySelectorAll('[data-rt-ui="native-media-expand"], [data-rt-ui="native-media-play"]')) btn.remove();
+      for (const media of document.querySelectorAll('[data-rt-native-video]')) delete media.dataset.rtNativeVideo;
+      this.nativePosterPreviews = null;
+      this.nativeVideoLookups.clear();
     }
 
     buildMediaLens(post) {
