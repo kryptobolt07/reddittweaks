@@ -784,6 +784,32 @@ test('native virtualization transfers filter state without turning a temporary h
  const {W,d}=setup(t);await d.ready;const native=d.feed.querySelector('shreddit-post'),original=native.parentElement===d.feed?native:native.parentElement;d.activityMenu.querySelector('[data-rt-activity-filter="hidden"]').click();assert.equal(original.hidden,true);const slot=W.document.createElement('div');slot.className='virtualized-placeholder';d.feed.replaceChild(slot,original);d.trackVirtualization([{target:d.feed,addedNodes:[slot],removedNodes:[original]}]);d.scan();assert.equal(slot.hidden,true);assert.equal(d.filteredNative.get(slot),false);d.activityMenu.querySelector('[data-rt-activity-filter="all"]').click();assert.equal(slot.hidden,false);d.feed.replaceChild(original,slot);d.trackVirtualization([{target:d.feed,addedNodes:[original],removedNodes:[slot]}]);d.scan();assert.equal(original.hidden,false);assert.equal(original.hasAttribute('data-rt-filter-hidden'),false);d.activityMenu.querySelector('[data-rt-activity-filter="hidden"]').click();assert.equal(original.hidden,true);d.feed.replaceChild(slot,original);d.trackVirtualization([{target:d.feed,addedNodes:[slot],removedNodes:[original]}]);d.scan();d.feed.replaceChild(original,slot);d.trackVirtualization([{target:d.feed,addedNodes:[original],removedNodes:[slot]}]);d.scan();d.activityMenu.querySelector('[data-rt-activity-filter="all"]').click();assert.equal(original.hidden,false);assert.equal(original.parentElement,d.feed);
 });
 
+test('clearing Deleted restores native cards at the filter row even during scroll-idle deferral',async t=>{
+ const {W,d}=setup(t,{pre:['feed-filters.js']});await d.ready;
+ const doc=W.document,header=doc.createElement('reddit-header-small');doc.body.prepend(header);
+ header.getBoundingClientRect=()=>({bottom:56});
+ const trigger=d.activityDropdown.querySelector('[data-rt-feed-trigger]'),native=d.feed.querySelector('shreddit-post');
+ const removed=doc.createElement('shreddit-post');removed.id='t3_removed';removed.setAttribute('item-state','removed');
+ native.after(removed);
+ let y=0;
+ Object.defineProperty(W,'scrollY',{configurable:true,get:()=>y});
+ W.scrollBy=({top})=>{y=Math.max(0,y+top);};
+ const rect=(top,height)=>({top,bottom:top+height,width:400,height});
+ trigger.getBoundingClientRect=()=>rect(300-y,40);
+ d.feed.getBoundingClientRect=()=>rect(360-y,1200);
+ native.getBoundingClientRect=()=>rect(360-y,native.hidden?0:1000);
+ removed.getBoundingClientRect=()=>rect((native.hidden?360:1360)-y,200);
+ d.activityMenu.querySelector('[data-rt-activity-filter="deleted"]').click();
+ assert.equal(native.hidden,true);
+ assert.equal(removed.hidden,false);
+ y=350;W.dispatchEvent(new W.Event('scroll'));
+ d.activityMenu.querySelector('[data-rt-activity-filter="all"]').click();
+ assert.equal(native.hidden,false,'all activity is applied in the same turn');
+ assert.equal(trigger.getBoundingClientRect().top,64,'the row stays under the header even when 1000px of cards reappear');
+ d.flushScrollDeferred();
+ assert.equal(y,236,'deferred feed work does not return to the old card');
+});
+
 test('an in-flight duplicate cannot expose an empty published card if the native duplicate later disappears',async t=>{
  let finish,calls=0;const {W,d}=setup(t,{nativeRender:async(post,node)=>{calls++;if(calls===1)return new Promise(r=>finish=r);node.innerHTML='<shreddit-post id="'+post.fullname+'"><span slot="credit-bar"></span><p slot="text-body">Ready again</p></shreddit-post>';}});await d.ready;await d.loadReddit();const node=d.nodes.get('abc12'),native=W.document.createElement('article');native.innerHTML='<shreddit-post id="t3_abc12"></shreddit-post>';d.feed.insertBefore(native,d.loading);finish({duplicate:true});await new Promise(r=>setImmediate(r));assert.equal(node.hidden,true);assert.equal(node.dataset.rtNativeState,'idle');native.remove();d.scan();assert.equal(node.hidden,true);await new Promise(r=>setImmediate(r));assert.equal(calls,2);assert.equal(node.dataset.rtNativeState,'ready');assert.equal(node.hidden,false);assert.match(node.textContent,/Ready again/);
 });

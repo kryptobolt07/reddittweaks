@@ -2030,7 +2030,11 @@
           this.menuGroups.push({...group,anchor,row:el,sub});this.activityMenuRows.push(el,sub);
         }
         const sub=this.activityMenu=submenu('activity'),activity=entry(this.isOwnList()?'List':'Activity','activity',sub);activity.dataset.rtActivity='true';activity.dataset.rtUi='activity-filter-option';activity.querySelector('[data-rt-menu-value]').dataset.rtActivityValue='true';menu.append(activity);
-        for(const [value,label,icon] of (this.isOwnList()?[]:[['all','All activity','show'],['hidden','Hidden','hidden'],['deleted','Deleted','deleted']])){const option=row(label,icon);option.dataset.rtActivityFilter=value;activate(option,()=>{if(this.activityFilter!==value){this.activityFilter=value;this.activeProfileBatch=null;this.nativeBatch.queue=this.nativeBatch.queue.filter(node=>{const post=this.postMetadata.get(node.dataset.key);if(post && this.eligibleProfilePost(post,node))return true;node.dataset.rtNativeState='idle';delete node.dataset.rtQualify;return false;});}if(value!=='all' && !this.archiveOnly)this.verifyArchiveStatuses([...this.archived.values()].filter(post=>post.source==='arctic-shift'));this.syncActivityPresentation();this.ensureActivityMenu();this.deduplicate();this.closeFeedMenu(dropdown,open);this.ensureActivityArchive();this.ensureBlockedHidden();if(this.batchedProfile)this.advanceProfileBatch(true);});sub.append(option);}
+        for(const [value,label,icon] of (this.isOwnList()?[]:[['all','All activity','show'],['hidden','Hidden','hidden'],['deleted','Deleted','deleted']])){
+          const option=row(label,icon);option.dataset.rtActivityFilter=value;
+          activate(option,()=>this.setActivityFilter(value,()=>this.closeFeedMenu(dropdown,open)));
+          sub.append(option);
+        }
         sub.dataset.rtRemovalOwner=removalOwner;
         // Your own profile's search: switch between all activity and your lists (Saved, History, …) in place.
         if(this.context?.view==='search' && !this.archiveOnly && !this.blockedProfile && signedInName && this.context.username.toLowerCase()===signedInName.toLowerCase()){
@@ -2254,17 +2258,49 @@
       const f=globalThis.RTFeedFilters;if(!f || this.context?.kind!=='profile' || this.rtSearch===location.search)return;
       this.rtSearch=location.search;const next=this.readFilters();if(!f.equal(next,this.rtFilters || f.empty()))this.setFilters(next,{write:false});
     }
+    feedStart(){
+      const button=this.activityDropdown?.isConnected?this.activityDropdown.querySelector(FEED_TRIGGER):null;
+      const box=button?.getBoundingClientRect();
+      return box && (box.width || box.height)?button:this.feed;
+    }
+    withFilterViewport(change){
+      if(this.changingFeedFilter)return change();
+      const keepStart=globalThis.RTFeedFilters?.keepFeedStart;
+      // Apply the new list immediately and let the toolbar own scroll placement for this update.
+      this.changingFeedFilter=true;
+      try{return keepStart?keepStart(this.feedStart(),change):change();}
+      finally{this.changingFeedFilter=false;}
+    }
+    updateFilterBatch(){
+      this.activeProfileBatch=null;
+      this.nativeBatch.queue=this.nativeBatch.queue.filter(node=>{
+        const post=this.postMetadata.get(node.dataset.key);
+        if(post && this.eligibleProfilePost(post,node))return true;
+        node.dataset.rtNativeState='idle';delete node.dataset.rtQualify;return false;
+      });
+    }
+    setActivityFilter(value,close){
+      if(this.activityFilter===value){close();return;}
+      this.withFilterViewport(()=>{
+        this.activityFilter=value;
+        this.updateFilterBatch();
+        if(value!=='all' && !this.archiveOnly)this.verifyArchiveStatuses([...this.archived.values()].filter(post=>post.source==='arctic-shift'));
+        this.syncActivityPresentation();this.ensureActivityMenu();this.deduplicate();close();
+        this.ensureActivityArchive();this.ensureBlockedHidden();if(this.batchedProfile)this.advanceProfileBatch(true);
+      });
+    }
     setFilters(next,{write=true}={}){
       const f=globalThis.RTFeedFilters;if(!f || this.context?.kind!=='profile' || this.context.section)return;
       next=f.clone(next);next.subreddits=next.subreddits.slice(0,f.maxSubreddits);const prev=this.rtFilters || f.empty();if(f.equal(prev,next))return;
       if(this.isOwnList()){const dateChanged=this.context.list==='removed' && JSON.stringify(prev.date)!==JSON.stringify(next.date);this.rtFilters=next;this.rtPred=null;if(write){const url=new URL(location.href);for(const name of ['rt_date','rt_type','rt_sub','rt_sort'])url.searchParams.delete(name);for(const [name,value] of Object.entries(f.serialize(next)))url.searchParams.set(name,value);replaceUrl(url);}this.rtSearch=location.search;this.searchParkAt=this.searchParkKey();this.renderFilterChips();this.syncFilterMenu();if(dateChanged){this.generation=++generationSeq;for(const c of this.controllers)c.abort();this.controllers.clear();this.listState={items:new Map(),scanned:0,loading:false,done:false,capped:false,error:'',after:null};this.loadOwnList();}else this.renderOwnList();return;}
       if(this.isSearch()){this.restartSearch(next,{write});return;}
-      this.rtFilters=next;this.rtPred=null;if(write){f.write(next);}this.rtSearch=location.search;
-      // The list starts again where the reader sees its start (RTFeedFilters.keepFeedStart), never beside a card.
-      const button=this.activityDropdown?.isConnected?this.activityDropdown.querySelector(FEED_TRIGGER):null,box=button?.getBoundingClientRect(),start=box && (box.width || box.height)?button:this.feed;if(f.keepFeedStart)f.keepFeedStart(start,()=>this.applyFilters(prev));else this.applyFilters(prev);
+      this.withFilterViewport(()=>{
+        this.rtFilters=next;this.rtPred=null;if(write){f.write(next);}this.rtSearch=location.search;
+        this.applyFilters(prev);
+      });
     }
     applyFilters(prev){
-      const f=globalThis.RTFeedFilters;this.renderFilterChips();if(this.rtAgg && this.rtAgg.key!==this.aggKey())this.rtAgg=null;this.syncFilterMenu();this.renderSubredditOptions();
+      this.renderFilterChips();if(this.rtAgg && this.rtAgg.key!==this.aggKey())this.rtAgg=null;this.syncFilterMenu();this.renderSubredditOptions();
       if(!this.host?.isConnected)return;
       const generation=this.generation;
       // A changed archive query (date window, subreddit, direction) starts a fresh archive stream; what is loaded stays.
@@ -2273,7 +2309,7 @@
         if(this.archiveOnly || this.freeMerge() || this.context.sort==='new' || this.activityFilter==='deleted'){const go=()=>{if(generation===this.generation)this.loadArchive();};if(this.archiveBusy)this.archiveRun.then(go,go);else go();}
       }
       if(prev.sort==='old' && !this.rtFilters.sort && !this.loaded && !this.busy && !this.archiveOnly)this.loadReddit();
-      this.activeProfileBatch=null;this.nativeBatch.queue=this.nativeBatch.queue.filter(node=>{const post=this.postMetadata.get(node.dataset.key);if(post && this.eligibleProfilePost(post,node))return true;node.dataset.rtNativeState='idle';delete node.dataset.rtQualify;return false;});
+      this.updateFilterBatch();
       this.render({reuseCards:true});
     }
     // Pills sit on the Sort & filter row, right of the button (like the chat search filter rail).
@@ -2775,6 +2811,7 @@
        placeholders. While the reader scrolls away from the feed end, this work waits until scrolling pauses, merged
        into one run; near the end (new cards are needed) it runs at once. */
     deferWhileScrolling(key,run){
+      if(this.changingFeedFilter){this.scrollDeferred?.delete(key);return false;}
       const idle=this.scrollIdleMs ?? 200,since=performance.now()-(this.lastScrollAt ?? -Infinity);if(since>=idle || this.batchInView)return false;
       (this.scrollDeferred ||= new Map()).set(key,run);if(!this.scrollDeferTimer)this.scrollDeferTimer=setTimeout(()=>this.flushScrollDeferred(),idle-since+10);return true;
     }
@@ -3146,7 +3183,7 @@
       return null;
     }
     withFeedViewport(change){
-      if(!this.feed || this.feedViewportUpdate)return change();
+      if(!this.feed || this.feedViewportUpdate || this.changingFeedFilter)return change();
       const feed=this.feed,anchor=this.captureFeedViewport();if(!anchor)return change();
       const properties=['min-height','overflow-anchor'],styles=properties.map(name=>[name,feed.style.getPropertyValue(name),feed.style.getPropertyPriority(name)]),height=feed.getBoundingClientRect().height;
       const restore=name=>{const [,value,priority]=styles.find(style=>style[0]===name);if(value)feed.style.setProperty(name,value,priority);else feed.style.removeProperty(name);};

@@ -484,10 +484,23 @@
   // the change added or hid above it (clearing a filter put a reader hundreds of pixels down the unfiltered feed).
   function keepFeedStart(start,change){
     if(!start?.isConnected)return change();
-    const past=pastFeedStart(start),top=start.getBoundingClientRect().top;
-    const result=change();
-    if(start.isConnected){if(past)toFeedStart(start);else{const delta=start.getBoundingClientRect().top-top;if(Math.abs(delta)>1)window.scrollBy({top:delta,behavior:'instant'});}}
-    return result;
+    const {top,width,height}=start.getBoundingClientRect();
+    if(!width && !height)return change();
+    const header=headerBottom(),target=top<header?header+8:top;
+    const scroller=document.scrollingElement || document.documentElement;
+    const style=scroller.style,anchor=style.getPropertyValue('overflow-anchor'),priority=style.getPropertyPriority('overflow-anchor');
+    // Prevent the browser from re-anchoring to a card when previously hidden cards return above it.
+    style.setProperty('overflow-anchor','none','important');
+    try{
+      const result=change();
+      if(start.isConnected){
+        const delta=start.getBoundingClientRect().top-target;
+        if(Math.abs(delta)>1)window.scrollBy({top:delta,behavior:'instant'});
+      }
+      return result;
+    }finally{
+      if(anchor)style.setProperty('overflow-anchor',anchor,priority);else style.removeProperty('overflow-anchor');
+    }
   }
   const iconNames=Object.freeze([...Object.keys(iconPaths),'gif']);
   globalThis.RTFeedFilters=Object.freeze({params:Object.freeze({...params}),types,typeLabels,typeIcons,typeSections,presets,hourPreset,allPresets,sorts,maxSubreddits,empty,clone,parse,serialize,isActive,equal,applyToSearch,write,read,dateRange,predicate,normalizeType,inferType,countSubreddits,mergeCounts,dateLabel,dateShort,subLabel,valueLabels,chipList,renderChips,fitRail,appliedRow,openApplied:openRailList,appliedCount:container=>appliedPills(container).length,pill,parsedElement,menuOption,markChecked,plainContext,sectionLabel,typeOptions,submenuHeader,subredditPanel,communityIcon,loadIcon,svgIcon,iconNames,subName,pastFeedStart,toFeedStart,keepFeedStart});

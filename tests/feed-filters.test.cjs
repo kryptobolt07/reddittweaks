@@ -128,8 +128,14 @@ test('a filter change with the feed start on screen keeps that start exactly whe
   d.querySelector('reddit-header-large').getBoundingClientRect=()=>({top:0,bottom:56,height:56,width:1000});
   const row=d.getElementById('row');let top=300;row.getBoundingClientRect=()=>({top,bottom:top+40,height:40,width:600});
   const moves=[];W.scrollBy=arg=>{moves.push(arg.top);top-=arg.top;};
+  d.documentElement.style.setProperty('overflow-anchor','auto','important');
   // The change (cards coming back above the one on screen) scrolled the page 440 px down.
-  assert.equal(F.keepFeedStart(row,()=>{top-=440;return 'done';}),'done');
+  assert.equal(F.keepFeedStart(row,()=>{
+    assert.equal(d.documentElement.style.overflowAnchor,'none','native anchoring is disabled during the change');
+    top-=440;return 'done';
+  }),'done');
+  assert.equal(d.documentElement.style.getPropertyValue('overflow-anchor'),'auto');
+  assert.equal(d.documentElement.style.getPropertyPriority('overflow-anchor'),'important');
   assert.deepEqual(moves,[-440]);assert.equal(top,300);
   // Scrolled past the start: back to it.
   top=-1200;moves.length=0;F.keepFeedStart(row,()=>{top-=300;});
