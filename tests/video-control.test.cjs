@@ -2297,6 +2297,18 @@ test('Media search tiles preview from the poster and the center Play control sta
  assert.equal(cardClicks,0);
  assert.equal(control.resultOpen,undefined);
 });
+test('a paused feed video can use the shared Play control before Reddit draws its poster button',async t=>{
+ const p=page(t);
+ await hoverController(p,{videoStart:'play'});
+ const play=p.root.querySelector('button[data-rt-video-play]');
+ assert.equal(play.hidden,false);
+ p.video.addEventListener('play',()=>p.video.dispatchEvent(new p.W.Event('playing')));
+ let cardClicks=0;p.player.closest('shreddit-post').addEventListener('click',()=>cardClicks++);
+ p.click(play);
+ assert.equal(p.video.paused,false);
+ assert.equal(play.hidden,true);
+ assert.equal(cardClicks,0);
+});
 test('Post opened directly also covers a post opened from a search result tile',async t=>{
  for(const [fromResult,expectMuted] of [[true,true],[false,false]]){
   const p=directPage(t);

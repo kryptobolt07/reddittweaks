@@ -3766,7 +3766,7 @@
       if (!feed || Model.parseVisualUrl(location.href)?.active) return;
       this.lightbox?.refreshNative?.();
       for (const tile of feed.querySelectorAll(NATIVE_MEDIA_TILE)) {
-        Overlay.bindTile(tile.querySelector(Overlay.searchPlayer));
+        Overlay.bindPlayer(tile.querySelector(Overlay.searchPlayer));
         if (tile.querySelector(':scope [data-rt-ui="native-media-expand"]')) continue;
         if (!nativeMediaItem(tile)) continue;
         const btn = make('button', 'rt-vs-icon-btn rt-vs-native-expand');

@@ -861,7 +861,7 @@
     const had=this.players.has(player);
     this.attach(player);
     Overlay.styleNative(player.shadowRoot?.querySelector('shreddit-media-ui')?.shadowRoot);
-    if(player.matches(Overlay.searchPlayer))Overlay.bindTile(player);
+    if(feedPlayer(player))Overlay.bindPlayer(player);
     if(!had && this.players.has(player))attachedNow.add(player);
     if(this.startMode(mediaKind(player))!=='default' && feedPlayer(player))this.observePoster(player);
     if(player.matches(PLAYERS))this.manageViewport(player,manageDetail && this.isDetailMedia(player));
@@ -2047,9 +2047,10 @@
    if(!this.configured || (!event.isTrusted && !globalThis.__rtVideoControlTest && event.target!==this.opening) ||
       event.defaultPrevented || event.button!==0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey)return;
    const path=event.composedPath();
+   if(path.some(node=>node.matches?.('[data-rt-video-play]')))return;
    const link=path.find(node=>node.matches?.('a[href]'));
    const result=path.find(node=>node.matches?.(SEARCH_RESULT));
-   if(result){if(!path.some(node=>node.matches?.('[data-rt-video-play]')))this.openFromResult(link);return;}
+   if(result){this.openFromResult(link);return;}
    if(path.some(node=>node.matches?.(PLAYERS)))return;
    const card=path.find(node=>node.matches?.('shreddit-post'));
    if(!link || !card || link.hasAttribute('download') || link.target && link.target!=='_self')return;

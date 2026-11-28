@@ -62,16 +62,18 @@
     root.append(style);
   }
 
-  function bindTile(player) {
-    if (!player?.matches(searchPlayer) || !player.closest(searchTile) ||
-        player.closest('shreddit-blurred-container[blurred]')) return;
+  function bindPlayer(player) {
+    if (!player || player.closest('shreddit-blurred-container[blurred]')) return;
+    const inSearch = player.matches(searchPlayer) && player.closest(searchTile);
+    const isGif = Boolean(player.closest(gif));
+    if (!inSearch && (!player.matches('[player-type="in_feed_player"]') || isGif)) return;
     const root = player.shadowRoot;
     const video = root?.querySelector('video');
     if (!video) return;
     const previous = bindings.get(player);
     if (previous?.video === video && previous.control.isConnected) return;
     previous?.dispose();
-    const control = button(player.ownerDocument, Boolean(player.closest(gif)));
+    const control = button(player.ownerDocument, isGif);
     control.hidden = !video.paused && video.readyState >= 2;
     const hide = () => { control.hidden = true; };
     const show = () => { if (video.paused || !video.readyState) control.hidden = false; };
@@ -80,8 +82,8 @@
     control.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
-      video.muted = true; // Reddit's Media grid is muted.
-      // The grid's own link opens the post. This control plays the tile in place using Reddit's player.
+      if (inSearch) video.muted = true; // Reddit's Media grid is muted.
+      // Play inside the card without following its link. Use Reddit's playback controller where available.
       if (player.dispatchEvent(new Event('rt-play-video', { bubbles: true, cancelable: true }))) {
         video.play()?.catch(() => {});
       }
@@ -94,5 +96,5 @@
     } });
   }
 
-  globalThis.RTVideoOverlay = Object.freeze({ mark, center, button, styleNative, bindTile, searchTile, searchPlayer, gif });
+  globalThis.RTVideoOverlay = Object.freeze({ mark, center, button, styleNative, bindPlayer, searchTile, searchPlayer, gif });
 })();
