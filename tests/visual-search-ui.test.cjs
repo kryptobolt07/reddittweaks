@@ -961,6 +961,8 @@ test('tile clips stream through the player frame, and the viewer continues from 
   frameSays(W, vframe, { type: 'playing' });
   assert.equal(viewer.querySelector('.rt-vs-viewer-stage').dataset.playing, 'true');
   assert.equal(viewer.querySelector('.rt-vs-viewer-stage').dataset.frameInteraction, undefined);
+  assert.equal(mark.style.getPropertyValue('display'), 'none');
+  assert.equal(mark.style.getPropertyPriority('display'), 'important');
 
   // ← moves to the previous result; → back again.
   D.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
@@ -979,6 +981,25 @@ test('tile clips stream through the player frame, and the viewer continues from 
   assert.equal(D.querySelector('dialog.rt-vs-viewer'), null, 'the viewer goes away');
   assert.deepEqual({ ...handed }, { id: SAMPLE_ITEMS[1].postId, time: 8.5, source: 'viewer', muted: false });
   assert.equal(navigated, SAMPLE_ITEMS[1].permalink);
+});
+
+test('clicking a playing Visual tile hands over its time before tearing down the preview', async t => {
+  const { W, D, controller } = setupUi(t, { sendImpl: clipSend({ fetches: 0 }) });
+  withFrames(W);
+  await controller.ready;
+  await flush();
+  inView(W, D);
+  const media = D.querySelector('.rt-vs-media[data-video-url]');
+  controller.startPreview(media, { manual: true });
+  frameSays(W, media.querySelector('iframe'), { type: 'playing', time: 4.75, paused: false });
+  let handed;
+  D.addEventListener('rt-visual-continue', e => {
+    assert.ok(media.querySelector('iframe'), 'the player still exists when its time is sent');
+    handed = e.detail;
+  });
+  D.addEventListener('click', e => e.preventDefault());
+  media.querySelector('img').click();
+  assert.deepEqual({ ...handed }, { id: SAMPLE_ITEMS[1].postId, time: 4.75, source: 'media', muted: true });
 });
 
 test('click choice Play here plays clips in the grid; a frame that never answers falls back to a download', async t => {
@@ -1308,6 +1329,79 @@ test('Reddit’s Media tab viewer starts on Play, retains the poster before play
   viewer.querySelector('.rt-vs-viewer-open').click();
   assert.equal(handed.id, 'vid111');
   assert.match(navigated, /\/r\/pics\/comments\/vid111\/t\/$/);
+});
+
+test('a Reddit Media GIF with a format=mp4 preview follows the GIF choice and continues into the viewer', async t => {
+  const src = 'https://preview.redd.it/sample.gif?width=360&format=mp4&s=example';
+  const { W, D, controller } = setupUi(t, {
+    url: 'https://www.reddit.com/search/?q=sample&type=media',
+    settings: { visualSearch: true, videoStart: 'autoplay', gifStart: 'play', clickAudio: 'unmute' },
+    html: `<!doctype html><main><search-media-feed><div data-id="search-media-post-unit"><a href="/r/pics/comments/gif01/sample/">
+      <shreddit-player player-type="search_results" post-id="t3_gif01" src="${src}" poster="https://preview.redd.it/sample.gif?format=png8">
+        <source src="${src}">
+      </shreddit-player></a></div></search-media-feed></main>`
+  });
+  inView(W, D);
+  Object.defineProperty(W.HTMLMediaElement.prototype, 'paused', { get() { return !this.playing; } });
+  const plays = [];
+  W.HTMLMediaElement.prototype.play = function () { this.playing = true; plays.push(this); return Promise.resolve(); };
+  const player = D.querySelector('shreddit-player');
+  const tileVideo = player.attachShadow({ mode: 'open' }).appendChild(D.createElement('video'));
+  await controller.ready;
+  const expand = D.querySelector('.rt-vs-native-expand');
+  expand.click();
+  let viewer = D.querySelector('.rt-vs-viewer-stage');
+  const control = viewer.querySelector('[aria-label="Play GIF"]');
+  assert.ok(control);
+  await wait(50);
+  assert.equal(plays.length, 0, 'the ordinary video autoplay setting does not start GIFs');
+  assert.equal(viewer.querySelector('video').src, src);
+  controller.closeLightbox({ restoreFocus: false });
+
+  tileVideo.playing = true;
+  tileVideo.currentTime = 2.5;
+  expand.click();
+  viewer = D.querySelector('.rt-vs-viewer-stage');
+  const video = viewer.querySelector('video');
+  Object.defineProperty(video, 'duration', { value: 8 });
+  Object.defineProperty(video, 'readyState', { value: 2 });
+  video.dispatchEvent(new W.Event('loadedmetadata'));
+  await wait(50);
+  assert.equal(plays.at(-1), video, 'opening a playing preview continues even with GIFs set to Play only');
+  assert.equal(video.currentTime, 2.5);
+  assert.equal(video.muted, true);
+  video.dispatchEvent(new W.Event('timeupdate'));
+  assert.equal(viewer.querySelector('[aria-label="Play GIF"]').style.display, 'none');
+  assert.equal(W.RTVideoOverlay.redditVideo(src.replace('format=mp4', 'format=png8')), '');
+});
+
+test('a poster-only Media result uses the GIF policy once its post identifies it as a GIF', async t => {
+  const src = 'https://v.redd.it/fixture/clip.mp4';
+  const { W, D, controller } = setupUi(t, {
+    url: 'https://www.reddit.com/search/?q=sample&type=media',
+    settings: { visualSearch: true, videoStart: 'preview', gifStart: 'play' },
+    html: `<!doctype html><main><search-media-feed><div data-id="search-media-post-unit">
+      <a href="/r/pics/comments/gif02/sample/"><div class="search-media-post-image">
+        <img data-post-media-primary src="https://preview.redd.it/still.jpg">
+        <button class="button-media"><svg icon-name="play-fill"></svg></button>
+      </div></a></div></search-media-feed></main>`
+  });
+  inView(W, D);
+  let requests = 0;
+  W.fetch = async () => {
+    requests++;
+    return { ok: true, text: async () => `<shreddit-post id="t3_gif02" post-type="gif"><shreddit-player post-id="t3_gif02" src="${src}"></shreddit-player></shreddit-post>` };
+  };
+  await controller.ready;
+  const media = D.querySelector('[data-rt-native-video]');
+  controller.startPreview(media);
+  await flush();
+  assert.equal(media.dataset.rtNativeVideo, 'gif');
+  assert.equal(media.querySelector('video'), null);
+  media.querySelector('[aria-label="Play GIF"]').click();
+  await flush();
+  assert.equal(media.querySelector('video').src, src);
+  assert.equal(requests, 1);
 });
 
 test('Reddit’s Media viewer keeps its result order through feed replacements and ignores duplicate posts', async t => {

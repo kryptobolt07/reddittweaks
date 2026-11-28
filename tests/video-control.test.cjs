@@ -2342,6 +2342,30 @@ test('Post opened directly also covers a post opened from a search result tile',
  }
 });
 
+test('opening a playing native Media tile carries its time into the post',async t=>{
+ for(const [isGif,videoOpenPost,expected] of [[false,'position',6.25],[true,'position',6.25],[false,'start',0]]){
+  const p=page(t),tile=searchTile(p),link=p.d.createElement('a');
+  p.W.history.replaceState({},'','/search/?q=sample&type=media');
+  link.href=postPath;tile.append(link);link.append(p.player);
+  if(isGif)p.player.setAttribute('src','https://preview.redd.it/sample.gif?format=mp4');
+  const target=p.player.cloneNode();target.setAttribute('player-type','post_detail_screen');
+  const targetVideo=target.attachShadow({mode:'open'}).appendChild(p.d.createElement('video'));
+  Object.defineProperty(targetVideo,'readyState',{value:2});
+  p.W.HTMLMediaElement.prototype.play=function(){this._playing=true;return Promise.resolve();};
+  const c=new p.W.RTVideoControlRaw.Videos({
+   readSettings:async()=>({videoOpenPost,clickAudio:'unmute',videoDirectOpen:'pause'}),observe:false
+  });
+  await c.ready;p.video._playing=true;p.video.currentTime=6.25;
+  p.click(p.video);
+  assert.equal(c.pending.saved.time,expected);
+  p.W.history.pushState({},'',postPath);p.d.body.append(target);
+  p.d.dispatchEvent(new p.W.Event('reddit:route'));
+  assert.equal(targetVideo.currentTime,expected);
+  assert.equal(targetVideo.paused,false);
+  assert.equal(targetVideo.muted,isGif);
+ }
+});
+
 test('a Visual search clip hands its moment to the opened post under Seamless post transition',async t=>{
  for(const [videoOpenPost,source,expectTime,expectMuted] of [['position','media',7,true],['start','media',0,true],['position','viewer',9,false],['default','media',null,null]]){
   const p=page(t,{detail:true});

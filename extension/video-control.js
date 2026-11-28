@@ -17,7 +17,6 @@
  const FEED_PLAYER='in_feed_player',DETAIL_PLAYER='post_detail_screen',SEARCH_PLAYER='search_results';
  // Reddit's Media search tab plays its tiles with search_results players: feed media for start policies and previews.
  const feedPlayer=player=>{const type=player?.getAttribute?.('player-type');return type===FEED_PLAYER || type===SEARCH_PLAYER && Boolean(player.closest?.(SEARCH_TILE));};
- // A post opened from a search result tile (Reddit's Media tab, Visual search) brings no playing moment to keep.
  const SEARCH_TILE=Overlay.searchTile,SEARCH_RESULT=SEARCH_TILE+',[data-rt-ui="visual-search"] .rt-vs-tile';
  // YouTube embeds Reddit renders as lite-youtube with the YouTube player API (controlled by the page bridge).
  const EMBED='shreddit-embed[providername="YouTube"]',EMBED_KEY='rt-embed-continue-v1',ANY_EMBED='shreddit-embed';
@@ -215,7 +214,7 @@
  }
  const dropPreStill=root=>{root?.querySelector('[data-rt-pre-still]')?.remove();root?.querySelector('[data-rt-pre-mark]')?.remove();};
  const kinds=['video','gif','embed'];
- const mediaKind=node=>node?.matches?.(ANY_EMBED)?'embed':node?.closest?.(Overlay.gif)?'gif':'video';
+ const mediaKind=node=>node?.matches?.(ANY_EMBED)?'embed':Overlay.isGif(node)?'gif':'video';
  const viewMode=(mode,touch)=>mode==='autoplay' || (touch && mode==='preview');
  const owner=doc=>{const app=doc.querySelector('shreddit-app'),id=(app?.getAttribute('logged-in-user-id') || '').toLowerCase();return app?.getAttribute('user-logged-in')==='true' && /^t2_[a-z0-9]{1,13}$/.test(id)?id:'';};
  // Reddit's preference, from its settings page (the prefs API needs a token the page does not expose).
@@ -2059,7 +2058,10 @@
    if(path.some(node=>node.matches?.('[data-rt-video-play]')))return;
    const link=path.find(node=>node.matches?.('a[href]'));
    const result=path.find(node=>node.matches?.(SEARCH_RESULT));
-   if(result){this.openFromResult(link);return;}
+   if(result){
+    if(link && !path.slice(0,path.indexOf(link)).some(node=>node.matches?.(PLAYER_CONTROLS)))this.openFromResult(link,result);
+    return;
+   }
    if(path.some(node=>node.matches?.(PLAYERS)))return;
    const card=path.find(node=>node.matches?.('shreddit-post'));
    if(!link || !card || link.hasAttribute('download') || link.target && link.target!=='_self')return;
@@ -2068,23 +2070,26 @@
    this.cardOpen=!this.opening;
    try{this.rememberCard(card,id);}finally{this.cardOpen=false;}
   }
-  // The post opened from a search result follows Post opened directly, as if its link had been opened: a result
-  // tile has no playing moment to carry over, so the post's own video or embed starts by that choice.
-  openFromResult(link){
+  // Preserve an active Media preview. Idle result tiles follow the direct-open policy.
+  openFromResult(link,result){
    if(!link || link.hasAttribute('download') || link.target && link.target!=='_self')return;
    let url;try{url=new URL(link.href,this.win.location.href);}catch{return;}
    const id=postId(url.pathname);
    if(url.origin!==this.win.location.origin || !id || postId(this.win.location.pathname)===id)return;
    this.resultOpen={id,at:Date.now()};
+   if(!result.matches(SEARCH_TILE))return;
+   const player=result.querySelector(Overlay.searchPlayer);
+   if(player?.getAttribute('post-id')!=='t3_'+id || player.closest(BLURRED))return;
+   const time=Overlay.playingTime(this.video(player));
+   if(time!==null)this.continueFromVisual({id,time,source:link.contains(player)?'media':'title',gif:Overlay.isGif(player)});
   }
-  // Visual search hands over its clip's moment (the same media as the post's video) when a result opens its post:
-  // Seamless post transition then continues the post's own video from there, as from a feed preview.
+  // Media and Visual search use the same detail-player handoff as feed previews.
   continueFromVisual(detail){
    if(!this.configured || !this.continueOnOpen || !detail)return;
    const id=String(detail.id || '').toLowerCase(),time=Number(detail.time);
    if(!/^[a-z0-9]{1,10}$/.test(id) || !Number.isFinite(time) || time<0)return;
-   const muted=detail.source==='viewer'?detail.muted!==false:detail.source==='title'?
-    (this.cardClickAudio==='unmute'?false:true):!this.unmutePreview;
+   const muted=detail.gif===true || (detail.source==='viewer'?detail.muted!==false:detail.source==='title'?
+    this.cardClickAudio!=='unmute':!this.unmutePreview);
    this.clearHandoff();
    const saved={id,owner:owner(this.doc),at:Date.now(),time:this.restartPreview?0:time,muted,volume:this.volumeMemory && this.savedVolume?.volume>0?this.savedVolume.volume:0.5,rate:1};
    this.pending={saved,from:this.win.location.pathname,reached:false};
@@ -2221,7 +2226,7 @@
    if(pending.sourceVideo && !pending.sourceVideo.paused)pending.sourceVideo.pause();
    video.currentTime=Number.isFinite(video.duration)?Math.min(time,Math.max(0,video.duration-0.1)):time;
    video.playbackRate=rate;
-   if(muted){video.volume=volume;video.muted=true;}else this.fadeIn(video,volume,player);
+   if(muted || mediaKind(player)==='gif'){video.volume=volume;video.muted=true;}else this.fadeIn(video,volume,player);
    this.continued.add(video);
    this.play(player,video)?.catch?.(()=>this.continued.delete(video));
   }

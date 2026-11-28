@@ -24,6 +24,7 @@
       time: Number.isFinite(video.currentTime) ? video.currentTime : 0,
       duration: Number.isFinite(video.duration) ? video.duration : 0,
       paused: video.paused, muted: video.muted, volume: video.volume,
+      rendered: video.readyState >= 2 && !video.seeking && video.currentTime > 0,
       ...extra
     }, parentOrigin);
   };
@@ -48,7 +49,7 @@
   }, { once: true });
   const playButton = mode === 'viewer' ? RTVideoOverlay.button(document, params.get('gif') === '1') : null;
   if (playButton) {
-    playButton.hidden = true;
+    RTVideoOverlay.show(playButton, false);
     playButton.addEventListener('click', () => { RTVideoOverlay.loading(playButton, true); play(); });
     document.body.append(playButton);
   }
@@ -56,7 +57,7 @@
     if (error?.name !== 'NotAllowedError') return;
     if (playButton) {
       RTVideoOverlay.loading(playButton, false);
-      playButton.hidden = false;
+      RTVideoOverlay.show(playButton, true);
     }
     post('blocked');
   };
@@ -66,18 +67,20 @@
       video.play().catch(blocked);
     } else blocked(error);
   });
-  video.addEventListener('playing', () => {
+  const playing = () => {
     document.body.dataset.playing = 'true';
     if (playButton) {
       RTVideoOverlay.loading(playButton, false);
-      playButton.hidden = true;
+      RTVideoOverlay.show(playButton, false);
     }
-    post('playing');
-  });
+  };
+  video.addEventListener('playing', () => { playing(); post('playing'); });
   if (!deferred) play();
 
   let last = 0;
   video.addEventListener('timeupdate', () => {
+    if (!video.paused && !video.seeking && video.readyState >= 2 && video.currentTime > 0 &&
+        (!document.body.hasAttribute('data-playing') || playButton && !playButton.hidden)) playing();
     const now = performance.now();
     if (now - last < 250) return;
     last = now;
