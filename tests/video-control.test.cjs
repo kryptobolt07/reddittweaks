@@ -19,7 +19,7 @@ function page(t,{owner='t2_alice',detail=false}={}){
  };
  const player=W.document.getElementById('p1'),root=player.attachShadow({mode:'open'});root.innerHTML='<button id="play" class="play-pause-button">Play</button><button id="mute" class="mute-button">Mute</button><button id="cc">Captions</button><video></video>';
  W.__rtVideoControlTest=true;
- for(const file of ['post-model.js','embed-player-hosts.js','video-control.js'])W.eval(fs.readFileSync('extension/'+file,'utf8'));
+ for(const file of ['post-model.js','embed-player-hosts.js','video-overlay.js','video-control.js'])W.eval(fs.readFileSync('extension/'+file,'utf8'));
  // Defaults are passive (Reddit/Provider Default); behaviour tests opt into the features they exercise unless they say otherwise.
  const Raw=W.RTVideoControl;W.RTVideoControlRaw=Raw;
  W.RTVideoControl={...Raw,Videos:class extends Raw.Videos{constructor(options={}){const read=options.readSettings;super({...options,readSettings:async()=>{
@@ -2277,6 +2277,25 @@ test('Media search tab videos follow the start choice: the one you stop on previ
  // A search_results player outside a Media tile is not feed media.
  const q=page(t);q.player.setAttribute('player-type','search_results');const other=await hoverController(q,{videoStart:'preview'});
  assert.equal(other.previewable(q.player),false);
+});
+test('Media search tiles preview from the poster and the center Play control starts the clip in place',async t=>{
+ const p=page(t),tile=searchTile(p),link=p.d.createElement('a'),poster=p.d.createElement('img');
+ link.href=postPath;tile.append(link);link.append(p.player,poster);
+ const control=await hoverController(p,{videoStart:'preview'});
+ const play=p.root.querySelector('button[data-rt-video-play]');
+ assert.ok(play && !play.hidden);
+ p.video.addEventListener('play',()=>p.video.dispatchEvent(new p.W.Event('playing')));
+ pointer(p,'pointerover','mouse',{target:poster});await waitForHover();
+ assert.equal(p.video.paused,false);assert.equal(p.video.muted,true);assert.equal(play.hidden,true);
+ control.stopHover();
+ p.video.dispatchEvent(new p.W.Event('pause'));
+ assert.equal(play.hidden,false);
+ control.configure({videoStart:'play'});
+ let cardClicks=0;link.addEventListener('click',()=>cardClicks++);
+ p.click(play);
+ assert.equal(p.video.paused,false);
+ assert.equal(cardClicks,0);
+ assert.equal(control.resultOpen,undefined);
 });
 test('Post opened directly also covers a post opened from a search result tile',async t=>{
  for(const [fromResult,expectMuted] of [[true,true],[false,false]]){

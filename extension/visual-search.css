@@ -442,7 +442,7 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   color: var(--color-neutral-content-weak, #576f76);
 }
 
-/* One symbol in Reddit's dark media pill (where Reddit shows a gallery's 1/4), top right of the tile. */
+/* GIFs use Reddit's corner pill. Videos use the same centered mark as the other players. */
 .rt-vs-badge {
   position: absolute;
   inset-inline-end: 8px;
@@ -462,10 +462,11 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   transition: opacity 120ms ease;
 }
 
-.rt-vs-badge svg {
-  width: 12px;
-  height: 12px;
-  flex: none;
+.rt-vs-video-mark {
+  inset-inline-end: auto;
+  height: auto;
+  padding: 0;
+  background: transparent;
 }
 
 .rt-vs-badge[data-kind="gif"] svg {
@@ -481,7 +482,7 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   opacity: 0;
 }
 
-.rt-vs-media[data-previewing="failed"] .rt-vs-badge {
+.rt-vs-media[data-previewing="failed"] .rt-vs-badge[data-kind="gif"] {
   background: rgba(180, 30, 30, .85);
 }
 
@@ -856,6 +857,7 @@ dialog.rt-vs-viewer::backdrop {
   justify-content: center;
   padding: 0 72px 24px;
   box-sizing: border-box;
+  touch-action: none;
 }
 
 .rt-vs-viewer-img {

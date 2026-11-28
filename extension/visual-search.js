@@ -10,6 +10,7 @@
   const MenuDOM = globalThis.RTPostMenuDOM;
   const DownloadModel = globalThis.RTDownloadModel;
   const CommunityIcons = globalThis.RTCommunityIcons;
+  const Overlay = globalThis.RTVideoOverlay;
   if (!Model) return;
 
   const SVG = 'http://www.w3.org/2000/svg';
@@ -226,36 +227,57 @@
     }
   }
 
-  const NATIVE_MEDIA_TILE = '[data-id="search-media-post-unit"]';
-  const redditMedia = u => { try { const url = new URL(String(u || '').replace(/&amp;/gi, '&')); return url.protocol === 'https:' && /(^|\.)redd\.it$/i.test(url.hostname) ? url.href : ''; } catch { return ''; } };
-  // The tallest MP4 up to 720 p from Reddit's packaged-media-json (falls back to the largest one listed).
-  function packagedMp4(player) {
+  const NATIVE_MEDIA_TILE = Overlay.searchTile;
+  const redditMedia = u => {
+    try {
+      const url = new URL(String(u || '').replace(/&amp;/gi, '&'));
+      return url.protocol === 'https:' && !url.username && !url.password && !url.port && /(^|\.)redd\.it$/i.test(url.hostname) ? url : null;
+    } catch { return null; }
+  };
+  function directVideo(value) {
+    const url = redditMedia(value);
+    return url && /\.(?:mp4|webm)$/i.test(url.pathname) ? url.href : '';
+  }
+  // Prefer the tallest packaged MP4 up to 720p. Keep the other direct sources for playback errors.
+  function nativeVideoSources(player) {
     let list = [];
     try { list = JSON.parse(player?.getAttribute?.('packaged-media-json') || '{}')?.playbackMp4s?.permutations || []; } catch {}
-    const usable = list.map(p => ({ url: redditMedia(p?.source?.url), h: Number(p?.source?.dimensions?.height) || 0 })).filter(p => p.url);
-    const fit = usable.filter(p => p.h <= 720).sort((a, b) => b.h - a.h)[0] || usable.sort((a, b) => b.h - a.h)[0];
-    return fit?.url || '';
+    const usable = (Array.isArray(list) ? list : []).map(p => {
+      const source = p?.source || p;
+      return { url: directVideo(source?.url), h: Number(source?.dimensions?.height) || 0 };
+    }).filter(p => p.url);
+    usable.sort((a, b) => (a.h > 720) - (b.h > 720) || b.h - a.h);
+    const video = player.shadowRoot?.querySelector('video');
+    const preview = player.shadowRoot?.querySelector('shreddit-media-ui')?.getAttribute('preview');
+    return [...new Set([...usable.map(p => p.url), ...[
+      video?.currentSrc, video?.getAttribute('src'), player.getAttribute('src'), preview
+    ].map(directVideo).filter(Boolean)])];
   }
   function nativeTileTime(tile) {
-    const video = tile?.querySelector?.('shreddit-player, shreddit-player-2')?.shadowRoot?.querySelector?.('video');
+    const video = tile?.querySelector(Overlay.searchPlayer)?.shadowRoot?.querySelector('video');
     return video && !video.paused && Number.isFinite(video.currentTime) ? video.currentTime : 0;
   }
   // One of Reddit's Media tab tiles as a viewer item.
   function nativeMediaItem(tile) {
     const link = tile?.querySelector?.('a[href*="/comments/"]');
-    const permalink = link?.getAttribute('href') || '';
-    const m = /^\/(r|user)\/([A-Za-z0-9_-]{2,24})\/comments\/([a-z0-9]{1,12})\//i.exec(permalink);
+    let url;
+    try { url = new URL(link?.href); } catch { return null; }
+    if (url.origin !== location.origin) return null;
+    const permalink = url.pathname + url.search;
+    const m = /^\/(r|user)\/([A-Za-z0-9_-]{2,24})\/comments\/([a-z0-9]{1,12})(?:\/|$)/i.exec(url.pathname);
     if (!m) return null;
-    const player = tile.querySelector('shreddit-player, shreddit-player-2');
     const img = tile.querySelector('img[data-post-media-primary]') || tile.querySelector('img:not(.post-background-image-filter)');
-    const poster = redditMedia(player?.getAttribute('poster')) || redditMedia(img?.currentSrc || img?.getAttribute('src'));
-    const mp4 = player ? packagedMp4(player) : '';
-    if (!poster && !mp4) return null;
+    // A gallery can contain its own hidden video. Only a search-results player is the tile's video preview.
+    const player = tile.querySelector(Overlay.searchPlayer);
+    if ((player || img)?.closest('shreddit-blurred-container[blurred]')) return null;
+    const poster = redditMedia(player?.getAttribute('poster'))?.href || redditMedia(img?.currentSrc || img?.getAttribute('src'))?.href || '';
+    const sources = player ? nativeVideoSources(player) : [];
+    if (!poster && !player) return null;
     let context = null;
     try { context = JSON.parse(tile.querySelector('[data-faceplate-tracking-context]')?.getAttribute('data-faceplate-tracking-context') || 'null'); } catch {}
     const title = String(context?.post?.title || link.querySelector('faceplate-screen-reader-content')?.textContent || '').trim().slice(0, 300);
     const subreddit = m[1].toLowerCase() === 'user' ? 'u_' + m[2] : m[2];
-    return { native: true, tile, uuid: 'native:' + m[3].toLowerCase(), postId: m[3].toLowerCase(), permalink, title, subreddit, src: poster, thumb: poster, mp4, isVideo: Boolean(mp4), isGif: false, fallbackImageUrl: poster };
+    return { native: true, tile, uuid: 'native:' + m[3].toLowerCase(), postId: m[3].toLowerCase(), permalink, title, subreddit, src: poster, thumb: poster, sources, isVideo: Boolean(player), isGif: Boolean(player?.closest(Overlay.gif)), fallbackImageUrl: poster };
   }
   function nativeMediaItems(feed) {
     return [...(feed?.querySelectorAll?.(NATIVE_MEDIA_TILE) || [])].map(nativeMediaItem).filter(Boolean);
@@ -656,6 +678,7 @@
       const parsed = Model.parseVisualUrl(location.href);
       const activeVisual = Boolean(parsed?.active);
       const main = document.querySelector('main');
+      if (this.lightbox && this.lightbox.route !== urlKey()) this.closeLightbox({ restoreFocus: false });
 
       // Track the latest native URL rendered inside <main> so Visual <-> Media fast swap knows if hidden native Media matches.
       if (main && main !== this.mountedMain && !activeVisual) {
@@ -1885,13 +1908,13 @@
         media.append(make('span', 'rt-vs-img-fallback', 'Media preview unavailable'));
       }
 
-      // One symbol in Reddit's media pill (where Reddit puts its 1/4 gallery count): a play mark for videos, GIF for GIFs.
+      // Video posters share the feed and viewer's Play mark. GIFs keep their own corner badge.
       if (item.isVideo) {
-        const badge = make('span', 'rt-vs-badge');
+        const badge = item.isGif ? make('span', 'rt-vs-badge') : Overlay.center(make('span', 'rt-vs-badge rt-vs-video-mark'));
         badge.setAttribute('role', 'img');
         badge.setAttribute('aria-label', item.isGif ? 'GIF' : 'Video');
         badge.dataset.kind = item.isGif ? 'gif' : 'video';
-        badge.append(item.isGif ? (Filters?.svgIcon?.('gif-post-outline', 16) || icon('play', 12)) : icon('play', 12));
+        badge.append(item.isGif ? (Filters?.svgIcon?.('gif-post-outline', 16) || make('span', '', 'GIF')) : Overlay.mark(document));
         media.append(badge);
       }
 
@@ -2672,13 +2695,28 @@
       if (!cur) return;
       this.lightbox = null;
       if (cur.player) this.dropPlayer(cur.player);
-      if (cur.video) { cur.video.pause(); cur.video.removeAttribute('src'); cur.video.load?.(); }
+      this.stopViewerVideo(cur);
       document.removeEventListener('keydown', cur.onKey, true);
       try { cur.dialog?.close?.(); } catch {}
       cur.dialog?.remove();
       document.documentElement.removeAttribute('data-rt-vs-viewer');
-      if (restoreFocus && cur.returnFocus?.isConnected) cur.returnFocus.focus({ preventScroll: true });
+      if (restoreFocus) {
+        const tile = cur.nativeTile?.();
+        tile?.scrollIntoView?.({ block: 'nearest', behavior: 'instant' });
+        const target = tile?.querySelector('.rt-vs-native-expand') || cur.returnFocus;
+        if (target?.isConnected) target.focus({ preventScroll: true });
+      }
+      document.dispatchEvent(new Event('rt-media-viewer-state'));
       if (this.host?.isConnected) this.settlePreviews();
+    }
+
+    stopViewerVideo(st) {
+      const video = st.video;
+      if (!video) return;
+      st.video = null;
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
     }
 
     // Opening a result's post from a tile or the viewer: close the viewer, hand the clip's moment to the post's own
@@ -2696,10 +2734,31 @@
     // Full-screen viewer: the media as large as the screen allows, the community and title above it, and the result's
     // actions; ← / → (or a swipe) move through the results. Clips stream with controls from the tile's moment.
     openLightbox(item, returnFocus = null, { list = null } = {}) {
-      // `list` (Reddit's Media tab) re-reads the page's tiles: Reddit adds more as the page behind the viewer scrolls.
-      let items = list ? list() : this.state?.items?.length ? this.state.items : [item];
+      // The Media grid can replace or reorder tiles while paging. Keep the viewed order and merge new results by ID.
+      const items = list ? [] : this.state?.items?.length ? this.state.items : [item];
+      const nativeIndices = new Map();
+      const mergeNative = fresh => {
+        for (const it of fresh) {
+          const known = nativeIndices.get(it.uuid);
+          if (known === undefined) {
+            nativeIndices.set(it.uuid, items.length);
+            items.push(it);
+          } else {
+            const previous = items[known];
+            items[known] = {
+              ...it, src: it.src || previous.src,
+              isVideo: it.isVideo || previous.isVideo, isGif: it.isVideo ? it.isGif : previous.isGif,
+              sources: it.sources.length ? it.sources : previous.sources
+            };
+          }
+        }
+        for (const it of items) if (it.tile && !it.tile.isConnected) it.tile = null;
+      };
+      if (list) {
+        mergeNative(list());
+        if (!nativeIndices.has(item.uuid)) mergeNative([item]);
+      }
       let index = Math.max(0, items.findIndex(it => it.uuid === item.uuid));
-      if (items[index]?.uuid !== item.uuid) index = 0;
       const startMedia = [...(this.host?.querySelectorAll?.('.rt-vs-tile') || [])].find(tile => tile.dataset.uuid === item.uuid)?.querySelector('.rt-vs-media');
       const startTime = item.native ? nativeTileTime(item.tile) : startMedia ? this.previewTime(startMedia) : 0;
       this.stopVideoPreview();
@@ -2751,7 +2810,7 @@
       bar.append(barPrev, barCount, barNext);
       dialog.append(stage, top, prev, next, count, bar);
 
-      const st = { dialog, returnFocus, player: null, onKey: null };
+      const st = { dialog, returnFocus, player: null, onKey: null, route: urlKey() };
       const syncNav = () => {
         count.textContent = items.length > 1 ? (index + 1) + ' / ' + items.length : '';
         prev.hidden = items.length < 2 || index === 0;
@@ -2761,9 +2820,21 @@
         barCount.textContent = count.textContent;
         bar.hidden = items.length < 2;
       };
+      if (list) {
+        st.nativeTile = () => current()?.tile;
+        st.refreshNative = () => { mergeNative(list()); syncNav(); };
+      }
+      let pagingTile = null;
+      const pageNative = () => {
+        if (!list || index < items.length - 3) return;
+        const tile = items.at(-1)?.tile;
+        if (!tile?.isConnected || tile === pagingTile) return;
+        pagingTile = tile;
+        tile.scrollIntoView?.({ block: 'end', behavior: 'instant' });
+      };
       const show = (it, time = 0) => {
         if (st.player) { this.dropPlayer(st.player); st.player = null; }
-        if (st.video) { st.video.pause(); st.video.removeAttribute('src'); st.video.load?.(); st.video = null; }
+        this.stopViewerVideo(st);
         dlBtn.hidden = Boolean(it.native);
         titleEl.textContent = it.title || 'Untitled Reddit post';
         const isUser = it.subreddit?.startsWith('u_');
@@ -2775,64 +2846,42 @@
         } else subEl.removeAttribute('href');
         syncNav();
         stage.replaceChildren();
-        const poster = make('img', 'rt-vs-viewer-img');
-        poster.src = it.src || it.thumb || '';
-        poster.alt = it.title || '';
-        poster.referrerPolicy = 'no-referrer';
-        poster.decoding = 'async';
-        stage.append(poster);
+        delete stage.dataset.playing;
+        if (it.src || it.thumb) {
+          const poster = make('img', 'rt-vs-viewer-img');
+          poster.src = it.src || it.thumb;
+          poster.alt = it.title || '';
+          poster.referrerPolicy = 'no-referrer';
+          poster.decoding = 'async';
+          stage.append(poster);
+        }
         if (it.native) {
-          // Reddit's own Media tab: its MP4 plays in the page (Reddit's media hosts are allowed there); the tile behind
-          // the viewer scrolls into place so Reddit keeps loading more and Close returns to it.
-          if (it.tile?.isConnected) {
-            try { it.tile.scrollIntoView({ block: 'center', behavior: 'instant' }); } catch {}
-            for (const v of it.tile.querySelectorAll('shreddit-player, shreddit-player-2')) v.shadowRoot?.querySelector('video')?.pause?.();
-          }
-          if (it.mp4) {
-            const video = make('video', 'rt-vs-viewer-video');
-            video.controls = true;
-            video.autoplay = true;
-            video.loop = true;
-            video.playsInline = true;
-            video.poster = it.src || '';
-            video.muted = !(this.clickChoice.clickAudio === 'unmute');
-            video.src = it.mp4;
-            video.addEventListener('loadedmetadata', () => { if (time > 0 && time < (video.duration || Infinity)) video.currentTime = time; }, { once: true });
-            video.addEventListener('playing', () => { stage.dataset.playing = 'true'; });
-            delete stage.dataset.playing;
-            st.video = video;
-            stage.append(video);
-            video.play?.().catch(() => { video.muted = true; video.play?.().catch(() => {}); });
-          }
+          if (it.isVideo) this.showNativeVideo(stage, it, st, time);
+          pageNative();
         } else if (it.videoUrl) {
           const sound = this.clickChoice.clickAudio === 'unmute' && !it.isGif;
           const player = this.makePlayerFrame(it.videoUrl, {
             mode: 'viewer', time, sound,
             onMessage: msg => {
               if (this.lightbox !== st || st.player !== player) return;
-              if (msg.type === 'playing' || msg.type === 'time') stage.dataset.playing = 'true';
+              if (msg.type === 'playing' || msg.type === 'time' && !msg.paused) stage.dataset.playing = 'true';
               if (msg.type === 'swipe') {
                 if (msg.direction === 'next') go(1);
                 else if (msg.direction === 'previous') go(-1);
                 else if (msg.direction === 'down') this.closeLightbox();
                 return;
               }
-              if (msg.type === 'unavailable' || msg.type === 'error') { this.dropPlayer(player); st.player = null; this.viewerBlob(stage, it, st); }
+              if (msg.type === 'unavailable' || msg.type === 'error') { this.dropPlayer(player); st.player = null; this.viewerBlob(stage, it, st, time); }
             }
           });
           if (player) {
             st.player = player;
-            delete stage.dataset.playing;
             stage.append(player.frame);
-          } else this.viewerBlob(stage, it, st);
+          } else this.viewerBlob(stage, it, st, time);
         }
       };
       const go = step => {
-        if (list) {
-          const uuid = items[index]?.uuid;
-          items = list();
-          index = Math.max(0, items.findIndex(it => it.uuid === uuid));
-        }
+        if (list && index + step >= items.length) st.refreshNative();
         const nextIndex = index + step;
         if (nextIndex < 0 || nextIndex >= items.length) return;
         index = nextIndex;
@@ -2844,20 +2893,31 @@
       };
       st.onKey = e => {
         if (this.lightbox !== st) return;
-        if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); }
-        else if (e.key === 'ArrowRight') { e.preventDefault(); go(1); }
+        if (e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        go(e.key === 'ArrowLeft' ? -1 : 1);
       };
       // Swipe left / right on touch; swipe down closes.
       let touch = null;
-      stage.addEventListener('touchstart', e => { const t = e.touches[0]; touch = t ? { x: t.clientX, y: t.clientY } : null; }, { passive: true });
+      stage.addEventListener('touchstart', e => {
+        const t = e.touches.length === 1 ? e.touches[0] : null;
+        touch = t ? { x: t.clientX, y: t.clientY } : null;
+      }, { passive: true });
       stage.addEventListener('touchend', e => {
         const t = e.changedTouches[0];
         if (!touch || !t) return;
         const dx = t.clientX - touch.x, dy = t.clientY - touch.y;
         touch = null;
-        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) go(dx < 0 ? 1 : -1);
-        else if (dy > 90 && Math.abs(dy) > Math.abs(dx) * 1.5) this.closeLightbox();
-      }, { passive: true });
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+          e.preventDefault();
+          go(dx < 0 ? 1 : -1);
+        } else if (dy > 90 && Math.abs(dy) > Math.abs(dx) * 1.5) {
+          e.preventDefault();
+          this.closeLightbox();
+        }
+      });
+      stage.addEventListener('touchcancel', () => { touch = null; });
       dialog.addEventListener('cancel', e => { e.preventDefault(); this.closeLightbox(); });
       dialog.addEventListener('click', e => { if (e.target === dialog || e.target === stage) this.closeLightbox(); });
       subEl.addEventListener('click', () => this.closeLightbox({ restoreFocus: false }));
@@ -2867,17 +2927,77 @@
       this.lightbox = st;
       if (typeof dialog.showModal === 'function') dialog.showModal();
       else dialog.setAttribute('open', '');
+      document.dispatchEvent(new Event('rt-media-viewer-state'));
+      if (item.native) {
+        item.tile?.querySelector(Overlay.searchPlayer)?.shadowRoot?.querySelector('video')?.pause();
+      }
       show(items[index], startTime);
       closeBtn.focus({ preventScroll: true });
     }
 
+    showNativeVideo(stage, item, st, time) {
+      const note = make('span', 'rt-vs-viewer-note', 'Video unavailable. Open the post to watch.');
+      note.setAttribute('role', 'status');
+      if (!item.sources.length) { stage.append(note); return; }
+      const video = make('video', 'rt-vs-viewer-video');
+      video.controls = true;
+      video.loop = true;
+      video.playsInline = true;
+      video.preload = 'metadata';
+      video.poster = item.src;
+      video.muted = item.isGif || this.clickChoice.clickAudio !== 'unmute';
+      const play = Overlay.button(document, item.isGif);
+      let sourceIndex = 0;
+      let requested = this.mediaChoice[item.isGif ? 'gif' : 'video'] !== 'play' || time > 0;
+      const start = () => {
+        const src = video.src;
+        video.play()?.catch(error => {
+          if (st.video !== video || video.src !== src || error?.name !== 'NotAllowedError' || video.muted) return;
+          video.muted = true;
+          video.play()?.catch(() => {});
+        });
+      };
+      const setSource = () => {
+        video.src = item.sources[sourceIndex];
+        if (requested) start();
+      };
+      play.addEventListener('click', () => {
+        requested = true;
+        if (sourceIndex >= item.sources.length) {
+          sourceIndex = 0;
+          note.remove();
+          setSource();
+        } else start();
+      });
+      video.addEventListener('loadedmetadata', () => {
+        if (time > 0 && time < video.duration) video.currentTime = time;
+      });
+      video.addEventListener('playing', () => {
+        if (st.video !== video) return;
+        time = 0;
+        stage.dataset.playing = 'true';
+        play.hidden = true;
+      });
+      video.addEventListener('pause', () => { play.hidden = false; });
+      video.addEventListener('error', () => {
+        if (st.video !== video) return;
+        play.hidden = false;
+        delete stage.dataset.playing;
+        if (++sourceIndex < item.sources.length) setSource();
+        else stage.append(note);
+      });
+      st.video = video;
+      stage.append(video, play);
+      setSource();
+    }
+
     // The viewer's clip where player frames are unavailable: the bounded blob: download, with controls.
-    async viewerBlob(stage, it, st) {
+    async viewerBlob(stage, it, st, time) {
       const note = make('span', 'rt-vs-viewer-note', 'Loading video…');
       stage.append(note);
       try {
         const objUrl = await this.getVideoBlobUrl(it.videoUrl);
-        if (this.dead || this.lightbox !== st || !stage.isConnected) return;
+        if (this.dead || this.lightbox !== st || !note.isConnected) return;
         const video = make('video', 'rt-vs-viewer-video');
         video.controls = true;
         video.autoplay = true;
@@ -2885,9 +3005,11 @@
         video.playsInline = true;
         video.muted = !(this.clickChoice.clickAudio === 'unmute' && !it.isGif);
         video.src = objUrl;
+        video.addEventListener('loadedmetadata', () => { if (time > 0 && time < video.duration) video.currentTime = time; }, { once: true });
+        video.addEventListener('playing', () => { if (st.video === video) stage.dataset.playing = 'true'; });
         note.remove();
+        st.video = video;
         stage.append(video);
-        stage.dataset.playing = 'true';
         video.play?.().catch(() => { video.muted = true; video.play?.().catch(() => {}); });
       } catch (err) {
         if (this.lightbox === st) note.textContent = err?.message || 'Video unavailable.';
@@ -3642,7 +3764,9 @@
     syncNativeMediaViewer() {
       const feed = document.querySelector('search-media-feed');
       if (!feed || Model.parseVisualUrl(location.href)?.active) return;
+      this.lightbox?.refreshNative?.();
       for (const tile of feed.querySelectorAll(NATIVE_MEDIA_TILE)) {
+        Overlay.bindTile(tile.querySelector(Overlay.searchPlayer));
         if (tile.querySelector(':scope [data-rt-ui="native-media-expand"]')) continue;
         if (!nativeMediaItem(tile)) continue;
         const btn = make('button', 'rt-vs-icon-btn rt-vs-native-expand');
@@ -3657,7 +3781,7 @@
           e.preventDefault();
           e.stopImmediatePropagation();
           const item = nativeMediaItem(tile);
-          if (item) this.openLightbox(item, btn, { list: () => nativeMediaItems(feed) });
+          if (item) this.openLightbox(item, btn, { list: () => nativeMediaItems(document.querySelector('search-media-feed')) });
         });
         // On the tile itself, beside Reddit's link rather than inside it (most tiles are one link around everything).
         tile.append(btn);

@@ -6,6 +6,7 @@
 (() => {
  'use strict';
  if(globalThis.RTVideoControl || window.top!==window)return;
+ const Overlay=globalThis.RTVideoOverlay;
  const PLAYERS='shreddit-player, shreddit-player-2',GESTURE_MS=1500,HOVER_MS=300,LEAVE_MS=250,FADE_MS=200,IN_VIEW=0.6,DWELL_MS=600,AUTOPLAY_MS=150,PROBE_MS=2500,HOLD_2X_MOUSE_MS=300,HOLD_2X_TOUCH_MS=350,HOLD_PREVIEW_MS=300,PREF_KEY='rt-video-autoplay-v1',PREF_TTL=3600000,CONTINUE_KEY='rt-video-continue-v1',CONTINUE_MS=12000,VOLUME_KEY='rt-video-volume-v1',DIRECT_PREPARE_MS=1500,DIRECT_TRIAL_MS=250,HELLO_MS=3500,PLAY_SETTLE_MS=1500,EMBED_TRIAL_MS=1500,PREVIEW_STALL_MS=4000;
  const COMMENT='shreddit-comment',MEDIA_NODES=PLAYERS+', '+COMMENT+' video';
  const commentOf=node=>node?.closest?.(COMMENT);
@@ -17,7 +18,7 @@
  // Reddit's Media search tab plays its tiles with search_results players: feed media for start policies and previews.
  const feedPlayer=player=>{const type=player?.getAttribute?.('player-type');return type===FEED_PLAYER || type===SEARCH_PLAYER && Boolean(player.closest?.(SEARCH_TILE));};
  // A post opened from a search result tile (Reddit's Media tab, Visual search) brings no playing moment to keep.
- const SEARCH_TILE='[data-id="search-media-post-unit"]',SEARCH_RESULT=SEARCH_TILE+',[data-rt-ui="visual-search"] .rt-vs-tile';
+ const SEARCH_TILE=Overlay.searchTile,SEARCH_RESULT=SEARCH_TILE+',[data-rt-ui="visual-search"] .rt-vs-tile';
  // YouTube embeds Reddit renders as lite-youtube with the YouTube player API (controlled by the page bridge).
  const EMBED='shreddit-embed[providername="YouTube"]',EMBED_KEY='rt-embed-continue-v1',ANY_EMBED='shreddit-embed';
  const BLURRED='shreddit-blurred-container[blurred]',NSFW_GATE='shreddit-blurred-container[reason="nsfw"]',POST_MEDIA='[slot="post-media-container"]';
@@ -214,7 +215,7 @@
  }
  const dropPreStill=root=>{root?.querySelector('[data-rt-pre-still]')?.remove();root?.querySelector('[data-rt-pre-mark]')?.remove();};
  const kinds=['video','gif','embed'];
- const mediaKind=node=>node?.matches?.(ANY_EMBED)?'embed':node?.matches?.('[gif],[post-type="gif"],[data-media-type="gif"]') || node?.closest?.('shreddit-post[post-type="gif"]')?'gif':'video';
+ const mediaKind=node=>node?.matches?.(ANY_EMBED)?'embed':node?.closest?.(Overlay.gif)?'gif':'video';
  const viewMode=(mode,touch)=>mode==='autoplay' || (touch && mode==='preview');
  const owner=doc=>{const app=doc.querySelector('shreddit-app'),id=(app?.getAttribute('logged-in-user-id') || '').toLowerCase();return app?.getAttribute('user-logged-in')==='true' && /^t2_[a-z0-9]{1,13}$/.test(id)?id:'';};
  // Reddit's preference, from its settings page (the prefs API needs a token the page does not expose).
@@ -339,6 +340,13 @@
     }
     const preview=this.ePreview;
     if(preview?.view && preview.active && !this.outsideViewport(preview.embed))this.retryEmbedPreview(preview);
+   };
+   this.onViewerState=()=>{
+    if(this.doc.documentElement.hasAttribute('data-rt-vs-viewer')){
+     this.endHoldPreview(false);this.stopHover();
+     for(const player of [...this.loops.keys()])this.stopLoop(player);
+    }else if(this.inView)this.settle();
+    else this.recheckPointer();
    };
    this.onContextMenu=event=>{if(this.hold2x?.engaged || this.holdPreview)event.preventDefault();};
    this.onHover=event=>this.hover(event);
@@ -511,6 +519,7 @@
    for(const type of ['click','auxclick'])doc.addEventListener(type,this.onEmbedLink,true);
    doc.addEventListener('reddit:route',this.onRoute);
    doc.addEventListener('rt-visual-continue',this.onVisualContinue);
+   doc.addEventListener('rt-media-viewer-state',this.onViewerState);
    doc.addEventListener('rt-embed-playing',this.onEmbedPlaying);
    doc.addEventListener('rt-mini-dismissed',this.onMiniDismissed);
    win.addEventListener('blur',this.onFrameFocus);
@@ -560,6 +569,7 @@
    for(const type of ['click','auxclick'])doc.removeEventListener(type,this.onEmbedLink,true);
    doc.removeEventListener('reddit:route',this.onRoute);
    doc.removeEventListener('rt-visual-continue',this.onVisualContinue);
+   doc.removeEventListener('rt-media-viewer-state',this.onViewerState);
    doc.removeEventListener('rt-embed-playing',this.onEmbedPlaying);
    doc.removeEventListener('rt-mini-dismissed',this.onMiniDismissed);
    win.removeEventListener('blur',this.onFrameFocus);
@@ -850,6 +860,8 @@
    for(const player of this.doc.querySelectorAll(MEDIA_NODES)){
     const had=this.players.has(player);
     this.attach(player);
+    Overlay.styleNative(player.shadowRoot?.querySelector('shreddit-media-ui')?.shadowRoot);
+    if(player.matches(Overlay.searchPlayer))Overlay.bindTile(player);
     if(!had && this.players.has(player))attachedNow.add(player);
     if(this.startMode(mediaKind(player))!=='default' && feedPlayer(player))this.observePoster(player);
     if(player.matches(PLAYERS))this.manageViewport(player,manageDetail && this.isDetailMedia(player));
@@ -942,7 +954,8 @@
     this.handoff();
     this.applyDirect();
    },true);
-   if(commentOf(player) && video && !video.paused && this.blocksStart(player))this.block(player,video);
+   if((commentOf(player) || player.matches(Overlay.searchPlayer) && player.closest(SEARCH_TILE)) &&
+      video && !video.paused && this.blocksStart(player))this.block(player,video);
   }
   video(player){return player.matches('video')?player:player.shadowRoot?.querySelector('video') || null;}
   isDetailMedia(player){
@@ -974,25 +987,28 @@
    if(this.inView)this.settle();
   }
   // A preview belongs to its post card: moving to the title, flair or votes keeps it; leaving the card pauses it.
-  cardOf(player){return (commentOf(player)?player.closest('figure') : player.closest('shreddit-post')) || player.parentElement || player;}
+  cardOf(player){return (commentOf(player)?player.closest('figure') : player.closest(SEARCH_TILE+',shreddit-post')) || player.parentElement || player;}
+  pointerPlayer(path){
+   return path.find(node=>node.matches?.(MEDIA_NODES)) ||
+    path.find(node=>node.matches?.(SEARCH_TILE+' a[href]'))?.querySelector(Overlay.searchPlayer);
+  }
   hover(event){
    if(!this.configured || this.touch || this.pending?.held || this.embedPending?.held || event.pointerType!=='mouse' ||
-      (!event.isTrusted && !globalThis.__rtVideoControlTest))return;
+      this.doc.documentElement.hasAttribute('data-rt-vs-viewer') || (!event.isTrusted && !globalThis.__rtVideoControlTest))return;
    const path=event.composedPath(),to=event.relatedTarget,within=(node,root)=>Boolean(node?.nodeType && (node===root || root.contains(node)));
    if(this.embedHover(event,path,to,within))return;
-   const current=this.hovered,card=current && this.cardOf(current);
+   const current=this.hovered,card=current && this.cardOf(current),player=this.pointerPlayer(path);
    if(event.type==='pointerout'){
-    if(!current || path.includes(current) && within(to,current))return;
+    if(!current || player===current && within(to,current))return;
     const preview=this.previews.get(current);
     // Before it plays, the preview is the player's alone; once playing, it belongs to the card.
-    if(!preview?.active || !preview.played){if(path.includes(current))this.stopHover();return;}
+    if(!preview?.active || !preview.played){if(player===current)this.stopHover();return;}
     if(!path.includes(card) || within(to,card))return;
     this.win.clearTimeout(this.leaveTimer);
     this.leaveTimer=this.win.setTimeout(()=>{if(this.hovered===current)this.stopHover();},LEAVE_MS);
     return;
    }
    if(current && path.includes(card))this.win.clearTimeout(this.leaveTimer);
-   const player=path.find(node=>node.matches?.(MEDIA_NODES));
    if(!player || this.startMode(mediaKind(player))!=='preview' || !this.previewable(player) || event.buttons || current===player)return;
    if(within(to,player))return;
    this.stopHover();
@@ -1016,7 +1032,7 @@
    if(!kinds.some(kind=>this.startMode(kind)==='preview'))return;
    const target=this.doc.elementFromPoint?.(this.pointer.x,this.pointer.y);if(!target)return;
    const path=[];for(let node=target;node;node=node.parentNode || node.host)path.push(node);path.push(this.win);
-   const media=path.find(node=>node.matches?.(MEDIA_NODES) || node.matches?.(ANY_EMBED));if(!media)return;
+   if(!this.pointerPlayer(path) && !path.some(node=>node.matches?.(ANY_EMBED)))return;
    this.hover({type:'pointerover',pointerType:'mouse',isTrusted:true,buttons:0,relatedTarget:null,composedPath:()=>path});
   }
   // A failed start must not leave the player marked as hovered or in view: every later pointerover inside it, and every
@@ -1028,7 +1044,7 @@
   startPreview(player,activated=false){
    const video=this.video(player);
    if(this.hovered!==player || !player.isConnected)return false;
-   if(this.doc.hidden || closedThread(player)){this.abandonPreview(player);return false;}
+   if(this.doc.hidden || closedThread(player) || this.doc.documentElement.hasAttribute('data-rt-vs-viewer')){this.abandonPreview(player);return false;}
    // Not hydrated yet: try again once the player attaches or reports metadata.
    if(!video){this.abandonPreview(player,true);return false;}
    if(!video.paused || video.ended || this.started.has(video)){this.abandonPreview(player);return false;}
@@ -1366,9 +1382,7 @@
    if(loaded)cover.dataset.rtLoaded='';
    if(keep)cover.dataset.rtKeepCover='';
    Object.assign(cover.style,{position:'absolute',inset:'0',zIndex:'4',cursor:'pointer',backgroundColor:loaded?'transparent':'var(--color-neutral-background-weak,#f6f8f9)',display:'flex',flexDirection:'column',gap:'8px',alignItems:'center',justifyContent:'center'});
-   const play=this.doc.createElement('span');play.dataset.rtParkedPlay='';
-   Object.assign(play.style,{position:'relative',width:'56px',height:'56px',borderRadius:'999px',background:'rgba(0,0,0,.6)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center'});
-   play.innerHTML='<svg viewBox="0 0 20 20" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M6 3.8v12.4a.8.8 0 0 0 1.2.7l10-6.2a.8.8 0 0 0 0-1.4l-10-6.2A.8.8 0 0 0 6 3.8Z"/></svg>';
+   const play=Overlay.mark(this.doc);play.dataset.rtParkedPlay='';play.style.position='relative';
    cover.append(play);
    // With no usable still: the provider's name under the play button (data-rt-placeholder).
    const name=embed.getAttribute('providername');
@@ -1524,10 +1538,8 @@
     if(this.win.getComputedStyle(embed).position==='static')embed.style.position='relative';
     still=this.doc.createElement('img');still.dataset.rtPreStill='';still.alt='';still.referrerPolicy='no-referrer';still.decoding='async';
     Object.assign(still.style,{position:'absolute',inset:'0',width:'100%',height:'100%',objectFit:'cover',backgroundColor:'var(--color-neutral-background-weak,#f6f8f9)',zIndex:'3',pointerEvents:'none'});
-    // The same play mark as Visual search tiles, shown as soon as the still has drawn: it is a video, not a picture.
-    const mark=this.doc.createElement('span');mark.dataset.rtPreMark='';mark.hidden=true;mark.setAttribute('aria-hidden','true');
-    Object.assign(mark.style,{position:'absolute',top:'8px',insetInlineEnd:'8px',zIndex:'3',minWidth:'24px',height:'24px',padding:'0 6px',boxSizing:'border-box',borderRadius:'999px',background:'rgba(0,0,0,.6)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'});
-    mark.innerHTML='<svg viewBox="0 0 20 20" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M6.8 4.4a.8.8 0 0 1 1.22-.68l7.6 4.6a.8.8 0 0 1 0 1.36l-7.6 4.6A.8.8 0 0 1 6.8 13.6V4.4Z"/></svg>';
+    const mark=Overlay.center(this.doc.createElement('span'));mark.dataset.rtPreMark='';mark.hidden=true;
+    mark.style.zIndex='3';mark.style.pointerEvents='none';mark.append(Overlay.mark(this.doc));
     still.addEventListener('load',()=>{mark.hidden=false;});
     still.addEventListener('error',()=>{mark.hidden=true;});
     root.append(still,mark);
@@ -2037,7 +2049,7 @@
    const path=event.composedPath();
    const link=path.find(node=>node.matches?.('a[href]'));
    const result=path.find(node=>node.matches?.(SEARCH_RESULT));
-   if(result){this.openFromResult(link);return;}
+   if(result){if(!path.some(node=>node.matches?.('[data-rt-video-play]')))this.openFromResult(link);return;}
    if(path.some(node=>node.matches?.(PLAYERS)))return;
    const card=path.find(node=>node.matches?.('shreddit-post'));
    if(!link || !card || link.hasAttribute('download') || link.target && link.target!=='_self')return;
@@ -2431,6 +2443,8 @@
   onPlay(player,event){
    const video=event.target;if(!(video instanceof (this.doc.defaultView?.HTMLMediaElement || HTMLMediaElement)))return;
    if(closedThread(player)){video.pause();return;}
+   if(player.matches(Overlay.searchPlayer) && player.closest(SEARCH_TILE) &&
+      this.doc.documentElement.hasAttribute('data-rt-vs-viewer')){video.pause();return;}
    const kind=mediaKind(player);
    if(kind!=='gif')this.applyLoopPolicy(player,video);
    if(this.loops.get(player)===video)return;
@@ -2641,7 +2655,8 @@
   // After scrolling stops, the feed video at least 60 % visible and nearest the middle of the screen previews, one at a
   // time; a playing preview keeps going while it stays at least half on screen.
   pickInView(settled=true,activated=false){
-   if(this.dead || !this.active || this.doc.hidden || this.pending?.held || this.embedPending?.held)return;
+   if(this.dead || !this.active || this.doc.hidden || this.pending?.held || this.embedPending?.held ||
+      this.doc.documentElement.hasAttribute('data-rt-vs-viewer'))return;
    // Once the viewer has taken over an embed, a nearby automatic preview cannot steal playback or its controls.
    if([...this.feedSoundEmbeds].some(embed=>embed.isConnected && this.feedEmbed(embed) && !this.outsideViewport(embed)))return;
    const height=this.win.innerHeight,middle=height/2;let best=null,distance=Infinity;

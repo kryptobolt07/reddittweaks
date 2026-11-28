@@ -140,6 +140,7 @@
         "comment-ergonomics-model.js",
         "comment-ergonomics.js",
         "embed-player-hosts.js",
+        "video-overlay.js",
         "video-control.js",
         "visual-search-model.js",
         "visual-search.js",

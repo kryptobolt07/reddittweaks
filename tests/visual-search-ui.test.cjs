@@ -139,7 +139,7 @@ function setupUi(t, {
     async get(sub) { return sub.toLowerCase() === 'pics' ? 'https://styles.redditmedia.com/t5_pics/styles/communityIcon_b.png' : null; }
   };
 
-  for (const file of ['post-model.js', 'download-model.js', 'post-menu-dom.js', 'feed-sheet.js', 'visual-search-model.js']) {
+  for (const file of ['post-model.js', 'download-model.js', 'post-menu-dom.js', 'feed-sheet.js', 'video-overlay.js', 'visual-search-model.js']) {
     W.eval(read(file));
   }
   W.__rtVisualSearchTest = true;
@@ -226,7 +226,7 @@ test('canvas upload serializes the prepared Firefox Blob through FileReader', as
 });
 
 test('visual-search modules contain zero unsafe HTML DOM injection sinks', () => {
-  for (const file of ['visual-search-boot.js', 'visual-search-model.js', 'visual-search-broker.js', 'visual-search.js']) {
+  for (const file of ['visual-search-boot.js', 'visual-search-model.js', 'visual-search-broker.js', 'visual-search.js', 'video-overlay.js']) {
     const stripped = read(file).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
     assert.equal(/\b(?:innerHTML|outerHTML|insertAdjacentHTML|document\.write)\b/.test(stripped), false, file + ' must not use HTML string sinks');
   }
@@ -1235,7 +1235,7 @@ test('lens on a YouTube embed that hasn’t drawn its player yet: the still come
   assert.equal(JSON.parse(W.sessionStorage.getItem('rt-visual-seed:videos/yt1111')).fallbackImageUrl, 'https://i.ytimg.com/vi/4_RV_5-nZFg/hqdefault.jpg');
 });
 
-test('Reddit’s Media tab: a full-screen button opens the viewer with Reddit’s own MP4 playing in the page', async t => {
+test('Reddit’s Media tab viewer starts on Play, retains the poster before playback and retries another MP4', async t => {
   const pm = JSON.stringify({ playbackMp4s: { permutations: [
     { source: { url: 'https://packaged-media.redd.it/a/pb/m2-res_360p.mp4?s=1', dimensions: { height: 360 } } },
     { source: { url: 'https://packaged-media.redd.it/a/pb/m2-res_720p.mp4?s=2', dimensions: { height: 720 } } },
@@ -1246,9 +1246,11 @@ test('Reddit’s Media tab: a full-screen button opens the viewer with Reddit’
     ${tile('vid111', `<shreddit-player player-type="search_results" poster="https://external-preview.redd.it/p.png?s=1" packaged-media-json="${pm}"></shreddit-player>`)}
     ${tile('img222', '<img data-post-media-primary src="https://preview.redd.it/i.jpg?s=2" alt="An image">')}
   </search-media-feed></main></body></html>`;
-  const { W, D, controller } = setupUi(t, { url: 'https://www.reddit.com/search/?q=dog&type=media', html });
-  await controller.ready;
+  const { W, D, controller } = setupUi(t, { url: 'https://www.reddit.com/search/?q=dog&type=media', html, settings: { visualSearch: true, videoStart: 'play' } });
   inView(W, D);
+  const plays = [];
+  W.HTMLMediaElement.prototype.play = function () { plays.push(this.src); return Promise.resolve(); };
+  await controller.ready;
   W.HTMLElement.prototype.scrollIntoView = function () {};
   controller.sync();
   const buttons = D.querySelectorAll('[data-rt-ui="native-media-expand"]');
@@ -1262,12 +1264,26 @@ test('Reddit’s Media tab: a full-screen button opens the viewer with Reddit’
   assert.equal(cardClicks, 0);
   const viewer = D.querySelector('dialog.rt-vs-viewer');
   const video = viewer.querySelector('video.rt-vs-viewer-video');
+  const stage = video.parentElement;
+  const play = stage.querySelector('[aria-label="Play video"]');
   assert.equal(video.getAttribute('src'), 'https://packaged-media.redd.it/a/pb/m2-res_720p.mp4?s=2', 'the tallest MP4 up to 720p');
+  assert.deepEqual(plays, []);
+  assert.equal(play.hidden, false);
+  assert.equal(stage.dataset.playing, undefined);
+  play.click();
+  assert.deepEqual(plays, [video.src]);
+  video.dispatchEvent(new W.Event('error'));
+  assert.match(plays[1], /m2-res_360p\.mp4/);
+  video.dispatchEvent(new W.Event('playing'));
+  assert.equal(play.hidden, true);
+  assert.equal(stage.dataset.playing, 'true');
   assert.equal(viewer.querySelector('.rt-vs-viewer-title').textContent, 'Title vid111');
   assert.equal(viewer.querySelector('.rt-vs-viewer-count').textContent, '1 / 2');
   assert.equal(viewer.querySelector('button[aria-label="Download"]').hidden, true);
   D.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
   assert.equal(viewer.querySelector('video'), null);
+  assert.equal(viewer.querySelector('[data-rt-video-play]'), null);
+  assert.equal(stage.dataset.playing, undefined);
   assert.equal(viewer.querySelector('.rt-vs-viewer-img').getAttribute('src'), 'https://preview.redd.it/i.jpg?s=2');
   // Open post hands the clip's moment to the post.
   D.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
@@ -1277,6 +1293,36 @@ test('Reddit’s Media tab: a full-screen button opens the viewer with Reddit’
   viewer.querySelector('.rt-vs-viewer-open').click();
   assert.equal(handed.id, 'vid111');
   assert.match(navigated, /\/r\/pics\/comments\/vid111\/t\/$/);
+});
+
+test('Reddit’s Media viewer keeps its result order through feed replacements and ignores duplicate posts', async t => {
+  const tile = id => `<div data-id="search-media-post-unit"><a href="/r/pics/comments/${id}/post/"><img data-post-media-primary src="https://i.redd.it/${id}.jpg"><faceplate-screen-reader-content>${id}</faceplate-screen-reader-content></a></div>`;
+  const feed = ids => `<search-media-feed>${ids.map(tile).join('')}</search-media-feed>`;
+  const { W, D, controller } = setupUi(t, {
+    url: 'https://www.reddit.com/search/?q=dog&type=media',
+    html: `<!doctype html><main>${feed(['one', 'two', 'three', 'four', 'five', 'six', 'seven'])}</main>`
+  });
+  await controller.ready;
+  controller.sync();
+  D.querySelector('.rt-vs-native-expand').click();
+  const move = key => D.dispatchEvent(new W.KeyboardEvent('keydown', { key, bubbles: true }));
+  const count = () => D.querySelector('.rt-vs-viewer-count').textContent;
+  const title = () => D.querySelector('.rt-vs-viewer-title').textContent;
+  for (let i = 0; i < 5; i++) move('ArrowRight');
+  assert.equal(count(), '6 / 7');
+  assert.equal(title(), 'six');
+  D.querySelector('main').innerHTML = feed(['four', 'seven', 'eight', 'eight', 'nine']);
+  controller.sync();
+  assert.equal(count(), '6 / 9');
+  for (const expected of ['seven', 'eight', 'nine']) {
+    move('ArrowRight');
+    assert.equal(title(), expected);
+  }
+  for (const expected of ['eight', 'seven', 'six', 'five']) {
+    move('ArrowLeft');
+    assert.equal(title(), expected);
+  }
+  assert.equal(count(), '5 / 9');
 });
 
 test('NSFW results by default: the Visual tab follows the reader’s choice, and a search can still switch it off', async t => {
