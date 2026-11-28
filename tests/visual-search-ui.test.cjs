@@ -1340,53 +1340,55 @@ test('Reddit’s Media viewer keeps its result order through feed replacements a
   assert.equal(count(), '5 / 9');
 });
 
-test('a Media result with only a poster can use the post player’s direct preview and shows the loading ring', async t => {
-  const tile = (id, badge = '') => `<div data-id="search-media-post-unit"><a href="/r/pics/comments/${id}/post/"><div class="search-media-post-image"><img data-post-media-primary src="https://preview.redd.it/${id}.jpg">${badge}</div></a></div>`;
-  const badge = '<button class="button-media"><svg icon-name="play-fill"></svg></button>';
-  const { W, D, controller } = setupUi(t, {
-    url: 'https://www.reddit.com/search/?q=&type=media',
-    settings: { visualSearch: true, videoStart: 'play' }, hover: true,
-    html: `<!doctype html><main><search-media-feed>${tile('video1', badge)}${tile('image1')}</search-media-feed></main>`
+for (const previewFile of ['CMAF_96.mp4', 'DASH_600_K']) {
+  test(`a poster-only Media result plays the post’s ${previewFile} preview and shows the loading ring`, async t => {
+    const tile = (id, badge = '') => `<div data-id="search-media-post-unit"><a href="/r/pics/comments/${id}/post/"><div class="search-media-post-image"><img data-post-media-primary src="https://preview.redd.it/${id}.jpg">${badge}</div></a></div>`;
+    const badge = '<button class="button-media"><svg icon-name="play-fill"></svg></button>';
+    const { W, D, controller } = setupUi(t, {
+      url: 'https://www.reddit.com/search/?q=&type=media',
+      settings: { visualSearch: true, videoStart: 'play' }, hover: true,
+      html: `<!doctype html><main><search-media-feed>${tile('video1', badge)}${tile('image1')}</search-media-feed></main>`
+    });
+    inView(W, D);
+    const requests = [];
+    const src = 'https://v.redd.it/fixture/' + previewFile;
+    let resolvePost;
+    W.fetch = path => {
+      requests.push(path);
+      return new Promise(resolve => { resolvePost = () => resolve({
+        ok: true, text: async () => `<shreddit-post id="t3_video1"><shreddit-player post-id="t3_video1" src="https://cf.v.redd.it/fixture/HLSPlaylist.m3u8" preview="${src}"></shreddit-player></shreddit-post>`
+      }); });
+    };
+    await controller.ready;
+    const media = D.querySelector('[data-rt-native-video]');
+    assert.ok(media?.querySelector('[data-rt-ui="native-media-play"]'));
+    assert.equal(D.querySelectorAll('[data-rt-native-video]').length, 1, 'the ordinary image has no Play button');
+    D.querySelector('.rt-vs-native-expand').click();
+    const viewer = D.querySelector('.rt-vs-viewer-stage');
+    const play = viewer.querySelector('[data-rt-video-play]');
+    assert.equal(play.hidden, false);
+    assert.equal(play.querySelector('[data-rt-video-loading]'), null);
+    await flush();
+    assert.deepEqual(requests, [], 'Play only keeps the source lookup idle');
+    play.click();
+    assert.ok(play.querySelector('[data-rt-video-loading]'), 'an actual playback request shows a ring around Play');
+    resolvePost();
+    await flush();
+    const video = viewer.querySelector('video');
+    assert.equal(video.src, src);
+    video.dispatchEvent(new W.Event('playing'));
+    assert.equal(play.hidden, true);
+    assert.equal(play.querySelector('[data-rt-video-loading]'), null, 'playback clears the ring');
+    controller.closeLightbox({ restoreFocus: false });
+    controller.applySettings({ visualSearch: true, videoStart: 'preview' });
+    hoverClip(W, media.querySelector('img'));
+    await wait(250);
+    await flush();
+    assert.equal(media.querySelector('video').src, src);
+    assert.equal(media.dataset.previewing, 'playing');
+    assert.deepEqual(requests, ['/svc/shreddit/partial-feed-post/t3_video1']);
   });
-  inView(W, D);
-  const requests = [];
-  const src = 'https://v.redd.it/fixture/CMAF_96.mp4';
-  let resolvePost;
-  W.fetch = path => {
-    requests.push(path);
-    return new Promise(resolve => { resolvePost = () => resolve({
-      ok: true, text: async () => `<shreddit-post id="t3_video1"><shreddit-player post-id="t3_video1" src="https://cf.v.redd.it/fixture/HLSPlaylist.m3u8" preview="${src}"></shreddit-player></shreddit-post>`
-    }); });
-  };
-  await controller.ready;
-  const media = D.querySelector('[data-rt-native-video]');
-  assert.ok(media?.querySelector('[data-rt-ui="native-media-play"]'));
-  assert.equal(D.querySelectorAll('[data-rt-native-video]').length, 1, 'the ordinary image has no Play button');
-  D.querySelector('.rt-vs-native-expand').click();
-  const viewer = D.querySelector('.rt-vs-viewer-stage');
-  const play = viewer.querySelector('[data-rt-video-play]');
-  assert.equal(play.hidden, false);
-  assert.equal(play.querySelector('[data-rt-video-loading]'), null);
-  await flush();
-  assert.deepEqual(requests, [], 'Play only keeps the source lookup idle');
-  play.click();
-  assert.ok(play.querySelector('[data-rt-video-loading]'), 'an actual playback request shows a ring around Play');
-  resolvePost();
-  await flush();
-  const video = viewer.querySelector('video');
-  assert.equal(video.src, src);
-  video.dispatchEvent(new W.Event('playing'));
-  assert.equal(play.hidden, true);
-  assert.equal(play.querySelector('[data-rt-video-loading]'), null, 'playback clears the ring');
-  controller.closeLightbox({ restoreFocus: false });
-  controller.applySettings({ visualSearch: true, videoStart: 'preview' });
-  hoverClip(W, media.querySelector('img'));
-  await wait(250);
-  await flush();
-  assert.equal(media.querySelector('video').src, src);
-  assert.equal(media.dataset.previewing, 'playing');
-  assert.deepEqual(requests, ['/svc/shreddit/partial-feed-post/t3_video1']);
-});
+}
 
 test('Media viewer requests Reddit’s continuation and can keep navigating after another page arrives', async t => {
   const tile = id => `<div data-id="search-media-post-unit"><a href="/r/pics/comments/${id}/post/"><img data-post-media-primary src="https://i.redd.it/${id}.jpg"></a></div>`;

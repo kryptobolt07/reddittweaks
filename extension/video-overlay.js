@@ -12,9 +12,10 @@
   function redditVideo(value) {
     try {
       const url = new URL(String(value || '').replace(/&amp;/gi, '&'));
-      if (url.protocol === 'https:' && !url.username && !url.password && !url.port &&
-          /^(?:i|v|cf\.v|packaged-media|preview|cf\.preview|external-preview)\.redd\.it$/i.test(url.hostname) &&
-          /\.(?:mp4|webm)$/i.test(url.pathname)) return url.href;
+      if (url.protocol !== 'https:' || url.username || url.password || url.port ||
+          !/^(?:i|v|cf\.v|packaged-media|preview|cf\.preview|external-preview)\.redd\.it$/i.test(url.hostname)) return '';
+      const legacyDashFile = /^(?:cf\.)?v\.redd\.it$/i.test(url.hostname) && /^\/[a-z0-9]+\/DASH_\d+_K$/i.test(url.pathname);
+      if (legacyDashFile || /\.(?:mp4|webm)$/i.test(url.pathname)) return url.href;
     } catch {}
     return '';
   }
