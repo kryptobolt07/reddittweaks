@@ -122,7 +122,8 @@
   }
 
   const isPhone = () => Boolean(globalThis.matchMedia?.('(max-width: 767.98px)')?.matches);
-  const canHover = () => Boolean(globalThis.matchMedia?.('(hover: hover) and (pointer: fine)')?.matches);
+  const canHover = () => Boolean(globalThis.matchMedia?.('(any-hover: hover) and (any-pointer: fine)')?.matches ||
+    globalThis.matchMedia?.('(hover: hover) and (pointer: fine)')?.matches);
   const reducedMotion = () => Boolean(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
   const historyEntry = () => globalThis.navigation?.currentEntry?.key || (location.pathname + location.search);
   const urlKey = (href = location.href) => {
@@ -234,24 +235,21 @@
       return url.protocol === 'https:' && !url.username && !url.password && !url.port && /(^|\.)redd\.it$/i.test(url.hostname) ? url : null;
     } catch { return null; }
   };
-  function directVideo(value) {
-    const url = redditMedia(value);
-    return url && /\.(?:mp4|webm)$/i.test(url.pathname) ? url.href : '';
-  }
   // Prefer the tallest packaged MP4 up to 720p. Keep the other direct sources for playback errors.
   function nativeVideoSources(player) {
     let list = [];
     try { list = JSON.parse(player?.getAttribute?.('packaged-media-json') || '{}')?.playbackMp4s?.permutations || []; } catch {}
     const usable = (Array.isArray(list) ? list : []).map(p => {
       const source = p?.source || p;
-      return { url: directVideo(source?.url), h: Number(source?.dimensions?.height) || 0 };
+      return { url: Overlay.redditVideo(source?.url), h: Number(source?.dimensions?.height) || 0 };
     }).filter(p => p.url);
     usable.sort((a, b) => (a.h > 720) - (b.h > 720) || b.h - a.h);
     const video = player.shadowRoot?.querySelector('video');
     const preview = player.shadowRoot?.querySelector('shreddit-media-ui')?.getAttribute('preview');
     return [...new Set([...usable.map(p => p.url), ...[
-      video?.currentSrc, video?.getAttribute('src'), player.getAttribute('src'), preview
-    ].map(directVideo).filter(Boolean)])];
+      video?.currentSrc, video?.getAttribute('src'), player.getAttribute('src'), preview,
+      ...[...(video?.querySelectorAll('source[src]') || [])].map(node => node.getAttribute('src'))
+    ].map(Overlay.redditVideo).filter(Boolean)])];
   }
   function nativeTileTime(tile) {
     const video = tile?.querySelector(Overlay.searchPlayer)?.shadowRoot?.querySelector('video');
@@ -281,6 +279,19 @@
   }
   function nativeMediaItems(feed) {
     return [...(feed?.querySelectorAll?.(NATIVE_MEDIA_TILE) || [])].map(nativeMediaItem).filter(Boolean);
+  }
+  function nativeMediaContinuation(feed) {
+    for (let next = feed?.nextElementSibling; next; next = next.nextElementSibling) {
+      if (next.matches('faceplate-loader, script, style')) continue;
+      if (!next.matches('faceplate-partial[loading="lazy"][src]')) return null;
+      try {
+        const url = new URL(next.getAttribute('src'), location.href);
+        if (url.origin === location.origin && url.pathname === '/svc/shreddit/search/' &&
+            url.searchParams.get('type') === 'media' && url.searchParams.has('cursor')) return next;
+      } catch {}
+      return null;
+    }
+    return null;
   }
 
   const REDDIT_STILL_HOSTS = new Set(['i.redd.it', 'preview.redd.it', 'cf.preview.redd.it', 'external-preview.redd.it']);
@@ -509,8 +520,8 @@
       document.addEventListener('contextmenu', this.onHoldMenu, true);
       document.addEventListener('click', this.onDocClick, true);
       document.addEventListener('keydown', this.onDocKeydown, true);
-      document.addEventListener('mouseover', this.onDocOver, true);
-      document.addEventListener('mouseout', this.onDocOut, true);
+      document.addEventListener('pointerover', this.onDocOver, true);
+      document.addEventListener('pointerout', this.onDocOut, true);
       document.addEventListener('submit', this.onDocSubmit, true);
       document.addEventListener('paste', this.onDocPaste, true);
       document.addEventListener('visibilitychange', this.onVisibility);
@@ -2426,13 +2437,15 @@
       catch { return ''; }
     }
 
-    makePlayerFrame(videoUrl, { mode = 'preview', time = 0, sound = false, onMessage = null } = {}) {
+    makePlayerFrame(videoUrl, { mode = 'preview', time = 0, sound = false, deferred = false, gif = false, onMessage = null } = {}) {
       const base = this.playerBase();
       if (!base) return null;
       const id = 'vp' + (++this.playerSeq);
       const params = new URLSearchParams({ src: videoUrl, mode, id, origin: location.origin });
       if (time > 0) params.set('t', time.toFixed(2));
       if (sound) params.set('sound', '1');
+      if (deferred) params.set('deferred', '1');
+      if (gif) params.set('gif', '1');
       const frame = make('iframe', mode === 'viewer' ? 'rt-vs-viewer-frame' : 'rt-vs-frame');
       frame.src = base + '#' + params.toString();
       frame.setAttribute('allow', 'autoplay; fullscreen');
@@ -2485,11 +2498,11 @@
 
     // How a tile's clip may start, from the reader's video and GIF start choices: 'hover' with a mouse, 'stop' (the one
     // you stop on) with touch, 'auto' (in view) for Autoplay, 'none' for Only when I press Play.
-    previewMode(media) {
+    previewMode(media, mouse = false) {
       const mode = this.mediaChoice?.[media?.dataset?.kind === 'gif' ? 'gif' : 'video'] || 'default';
-      if (mode === 'play' || reducedMotion()) return 'none';
+      if (mode === 'play' || mode === 'default' && reducedMotion()) return 'none';
       if (mode === 'autoplay') return 'auto';
-      return canHover() ? 'hover' : 'stop';
+      return mouse || canHover() ? 'hover' : 'stop';
     }
 
     stopVideoPreview() {
@@ -2596,10 +2609,14 @@
           mode: 'preview',
           onMessage: msg => {
             if (this.hoveredPreview !== entry) return;
-            if (msg.type === 'unavailable') { this.dropPlayer(player); entry.player = null; viaBlob(); return; }
+            if (msg.type === 'unavailable' || msg.type === 'error') {
+              this.dropPlayer(player);
+              entry.player = null;
+              viaBlob();
+              return;
+            }
             if (msg.type === 'playing' || msg.type === 'time' && !msg.paused) playing();
             else if (msg.type === 'blocked') this.waitForPreviewActivation(entry, () => this.commandPlayer(player, 'play'));
-            else if (msg.type === 'error') this.previewFailed(entry);
           }
         });
         if (!player) { viaBlob(); return; }
@@ -2639,18 +2656,19 @@
     }
 
     handlePointerOver(event) {
-      if (!this.enabled) return;
+      if (!this.enabled || this.lightbox || event.pointerType !== 'mouse' || event.buttons) return;
       const wrap = event.target?.closest?.('[data-rt-ui="visual-search"] .rt-vs-media-wrap');
       const media = wrap?.querySelector?.('.rt-vs-media[data-video-url]');
-      if (!media || this.hoveredPreview?.media === media || this.previewMode(media) !== 'hover') return;
+      if (!media || this.hoveredPreview?.media === media || this.previewMode(media, true) !== 'hover') return;
       this.startPreview(media, { delay: HOVER_PREVIEW_MS });
+      if (this.hoveredPreview?.media === media) this.hoveredPreview.mouse = true;
     }
 
     handlePointerOut(event) {
       const cur = this.hoveredPreview;
-      if (!cur || cur.manual || this.previewMode(cur.media) !== 'hover') return;
+      if (!cur?.mouse || event.pointerType !== 'mouse') return;
       const wrap = cur.media.closest('.rt-vs-media-wrap') || cur.media;
-      if (!wrap.contains(event.relatedTarget)) this.stopVideoPreview();
+      if (wrap.contains(event.target) && !(event.relatedTarget?.nodeType && wrap.contains(event.relatedTarget))) this.stopVideoPreview();
     }
 
     // Touch and Autoplay: once scrolling pauses, the clip at least 60 % on screen and nearest the middle plays; a playing
@@ -2676,7 +2694,7 @@
       };
       const cur = this.hoveredPreview;
       if (cur?.manual && cur.media.isConnected && visible(cur.media) >= 0.5) return;
-      if (cur && cur.media.isConnected && ['auto', 'stop'].includes(this.previewMode(cur.media)) && visible(cur.media) >= 0.5) return;
+      if (cur && cur.media.isConnected && (cur.mouse || ['auto', 'stop'].includes(this.previewMode(cur.media))) && visible(cur.media) >= 0.5) return;
       let best = null, distance = Infinity;
       for (const media of this.host.querySelectorAll('.rt-vs-media[data-video-url]')) {
         const mode = this.previewMode(media);
@@ -2811,26 +2829,44 @@
       dialog.append(stage, top, prev, next, count, bar);
 
       const st = { dialog, returnFocus, player: null, onKey: null, route: urlKey() };
+      const continuation = () => list && nativeMediaContinuation(document.querySelector('search-media-feed'));
       const syncNav = () => {
-        count.textContent = items.length > 1 ? (index + 1) + ' / ' + items.length : '';
+        const more = continuation() || (!list && items === this.state?.items && this.state.hasMore);
+        count.textContent = items.length > 1 || more ? (index + 1) + ' / ' + items.length : '';
         prev.hidden = items.length < 2 || index === 0;
-        next.hidden = items.length < 2 || index === items.length - 1;
+        next.hidden = index === items.length - 1 && !more;
         barPrev.disabled = prev.hidden;
         barNext.disabled = next.hidden;
         barCount.textContent = count.textContent;
-        bar.hidden = items.length < 2;
+        bar.hidden = prev.hidden && next.hidden;
+      };
+      let requestedLoader = null;
+      let requestedSrc = '';
+      let requestedAt = -Infinity;
+      let pagedIndex = -1;
+      const pageNative = (retry = false) => {
+        if (!list || index < items.length - 3 || index === pagedIndex && !retry) return;
+        const loader = continuation();
+        if (!loader) return;
+        const src = loader.getAttribute('src');
+        if (loader === requestedLoader && src === requestedSrc && performance.now() - requestedAt < 6000) return;
+        requestedLoader = loader;
+        requestedSrc = src;
+        requestedAt = performance.now();
+        pagedIndex = index;
+        // Ask the same Reddit partial that infinite scrolling uses, without moving the feed behind the dialog.
+        if (loader.dispatchEvent(new Event('rt-load-media-page', { bubbles: true, cancelable: true }))) {
+          loader.scrollIntoView?.({ block: 'center', behavior: 'instant' });
+        }
       };
       if (list) {
         st.nativeTile = () => current()?.tile;
-        st.refreshNative = () => { mergeNative(list()); syncNav(); };
+        st.refreshNative = () => { mergeNative(list()); syncNav(); pageNative(); };
       }
-      let pagingTile = null;
-      const pageNative = () => {
-        if (!list || index < items.length - 3) return;
-        const tile = items.at(-1)?.tile;
-        if (!tile?.isConnected || tile === pagingTile) return;
-        pagingTile = tile;
-        tile.scrollIntoView?.({ block: 'end', behavior: 'instant' });
+      const pageVisual = () => {
+        if (items === this.state?.items && index >= items.length - 3) {
+          Promise.resolve(this.loadMore()).then(() => { if (this.lightbox === st) syncNav(); }, () => {});
+        }
       };
       const show = (it, time = 0) => {
         if (st.player) { this.dropPlayer(st.player); st.player = null; }
@@ -2847,6 +2883,7 @@
         syncNav();
         stage.replaceChildren();
         delete stage.dataset.playing;
+        delete stage.dataset.frameInteraction;
         if (it.src || it.thumb) {
           const poster = make('img', 'rt-vs-viewer-img');
           poster.src = it.src || it.thumb;
@@ -2855,41 +2892,22 @@
           poster.decoding = 'async';
           stage.append(poster);
         }
-        if (it.native) {
-          if (it.isVideo) this.showNativeVideo(stage, it, st, time);
-          pageNative();
-        } else if (it.videoUrl) {
-          const sound = this.clickChoice.clickAudio === 'unmute' && !it.isGif;
-          const player = this.makePlayerFrame(it.videoUrl, {
-            mode: 'viewer', time, sound,
-            onMessage: msg => {
-              if (this.lightbox !== st || st.player !== player) return;
-              if (msg.type === 'playing' || msg.type === 'time' && !msg.paused) stage.dataset.playing = 'true';
-              if (msg.type === 'swipe') {
-                if (msg.direction === 'next') go(1);
-                else if (msg.direction === 'previous') go(-1);
-                else if (msg.direction === 'down') this.closeLightbox();
-                return;
-              }
-              if (msg.type === 'unavailable' || msg.type === 'error') { this.dropPlayer(player); st.player = null; this.viewerBlob(stage, it, st, time); }
-            }
-          });
-          if (player) {
-            st.player = player;
-            stage.append(player.frame);
-          } else this.viewerBlob(stage, it, st, time);
-        }
+        if (it.native ? it.isVideo : it.videoUrl) this.showViewerClip(stage, it, st, time, go);
+        if (it.native) pageNative();
       };
       const go = step => {
         if (list && index + step >= items.length) st.refreshNative();
         const nextIndex = index + step;
-        if (nextIndex < 0 || nextIndex >= items.length) return;
+        if (nextIndex < 0 || nextIndex >= items.length) {
+          if (step > 0) {
+            if (list) pageNative(true);
+            else pageVisual();
+          }
+          return;
+        }
         index = nextIndex;
         show(items[index]);
-        // Near the end of what is loaded, the grid's next page loads too (results are appended to this same list).
-        if (items === this.state?.items && index >= items.length - 3) {
-          Promise.resolve(this.loadMore()).then(() => { if (this.lightbox === st) syncNav(); }, () => {});
-        }
+        if (!list) pageVisual();
       };
       st.onKey = e => {
         if (this.lightbox !== st) return;
@@ -2932,87 +2950,149 @@
         item.tile?.querySelector(Overlay.searchPlayer)?.shadowRoot?.querySelector('video')?.pause();
       }
       show(items[index], startTime);
+      if (!list) pageVisual();
       closeBtn.focus({ preventScroll: true });
     }
 
-    showNativeVideo(stage, item, st, time) {
-      const note = make('span', 'rt-vs-viewer-note', 'Video unavailable. Open the post to watch.');
+    showViewerClip(stage, item, st, time, go) {
+      const control = Overlay.button(document, item.isGif);
+      const note = make('span', 'rt-vs-viewer-note');
       note.setAttribute('role', 'status');
-      if (!item.sources.length) { stage.append(note); return; }
-      const video = make('video', 'rt-vs-viewer-video');
-      video.controls = true;
-      video.loop = true;
-      video.playsInline = true;
-      video.preload = 'metadata';
-      video.poster = item.src;
-      video.muted = item.isGif || this.clickChoice.clickAudio !== 'unmute';
-      const play = Overlay.button(document, item.isGif);
-      let sourceIndex = 0;
+      const sound = this.clickChoice.clickAudio === 'unmute' && !item.isGif;
+      const active = () => this.lightbox === st && control.isConnected;
       let requested = this.mediaChoice[item.isGif ? 'gif' : 'video'] !== 'play' || time > 0;
-      const start = () => {
-        const src = video.src;
-        video.play()?.catch(error => {
-          if (st.video !== video || video.src !== src || error?.name !== 'NotAllowedError' || video.muted) return;
-          video.muted = true;
-          video.play()?.catch(() => {});
-        });
+      let painted = false, pressed = false, start = null;
+      const begin = () => {
+        if (active() && requested && (painted || pressed)) start?.();
       };
-      const setSource = () => {
-        video.src = item.sources[sourceIndex];
-        if (requested) start();
-      };
-      play.addEventListener('click', () => {
-        requested = true;
-        if (sourceIndex >= item.sources.length) {
-          sourceIndex = 0;
-          note.remove();
-          setSource();
-        } else start();
-      });
-      video.addEventListener('loadedmetadata', () => {
-        if (time > 0 && time < video.duration) video.currentTime = time;
-      });
-      video.addEventListener('playing', () => {
-        if (st.video !== video) return;
-        time = 0;
+      const playing = () => {
         stage.dataset.playing = 'true';
-        play.hidden = true;
-      });
-      video.addEventListener('pause', () => { play.hidden = false; });
-      video.addEventListener('error', () => {
-        if (st.video !== video) return;
-        play.hidden = false;
+        delete stage.dataset.frameInteraction;
+        control.hidden = true;
+        note.remove();
+      };
+      const failure = () => {
+        control.hidden = false;
         delete stage.dataset.playing;
-        if (++sourceIndex < item.sources.length) setSource();
-        else stage.append(note);
-      });
-      st.video = video;
-      stage.append(video, play);
-      setSource();
-    }
+        delete stage.dataset.frameInteraction;
+        note.textContent = 'Couldn’t play this video. Try again or open the post.';
+        stage.append(note);
+      };
 
-    // The viewer's clip where player frames are unavailable: the bounded blob: download, with controls.
-    async viewerBlob(stage, it, st, time) {
-      const note = make('span', 'rt-vs-viewer-note', 'Loading video…');
-      stage.append(note);
-      try {
-        const objUrl = await this.getVideoBlobUrl(it.videoUrl);
-        if (this.dead || this.lightbox !== st || !note.isConnected) return;
+      control.addEventListener('click', () => { pressed = true; requested = true; begin(); });
+      stage.append(control);
+      // Commit the poster and Play overlay to the screen before starting a warm clip.
+      requestAnimationFrame(() => requestAnimationFrame(() => { painted = true; begin(); }));
+
+      const direct = (sources, fallback) => {
         const video = make('video', 'rt-vs-viewer-video');
         video.controls = true;
-        video.autoplay = true;
         video.loop = true;
         video.playsInline = true;
-        video.muted = !(this.clickChoice.clickAudio === 'unmute' && !it.isGif);
-        video.src = objUrl;
-        video.addEventListener('loadedmetadata', () => { if (time > 0 && time < video.duration) video.currentTime = time; }, { once: true });
-        video.addEventListener('playing', () => { if (st.video === video) stage.dataset.playing = 'true'; });
-        note.remove();
+        video.preload = 'none';
+        if (item.src) video.poster = item.src;
+        video.muted = !sound;
         st.video = video;
+        let sourceIndex = 0;
+        const current = () => active() && st.video === video;
+        const nextSource = () => {
+          if (!current()) return;
+          delete stage.dataset.playing;
+          control.hidden = false;
+          if (++sourceIndex < sources.length) {
+            video.src = sources[sourceIndex];
+            begin();
+          } else {
+            this.stopViewerVideo(st);
+            video.remove();
+            fallback();
+          }
+        };
+        start = () => {
+          const src = video.src;
+          video.play()?.catch(error => {
+            if (!current() || video.src !== src) return;
+            if (error?.name === 'NotAllowedError' && !video.muted) {
+              video.muted = true;
+              video.play()?.catch(() => {});
+            } else if (error?.name === 'NotSupportedError' && !video.error) nextSource();
+          });
+        };
+        video.addEventListener('loadedmetadata', () => {
+          if (time > 0 && time < video.duration) video.currentTime = time;
+        });
+        video.addEventListener('playing', () => { if (current()) playing(); });
+        video.addEventListener('pause', () => { if (current()) control.hidden = false; });
+        video.addEventListener('error', nextSource);
         stage.append(video);
-        video.play?.().catch(() => { video.muted = true; video.play?.().catch(() => {}); });
-      } catch (err) {
-        if (this.lightbox === st) note.textContent = err?.message || 'Video unavailable.';
+        video.src = sources[0];
+        begin();
+      };
+
+      const framed = (src, fallback) => {
+        const player = this.makePlayerFrame(src, {
+          mode: 'viewer', time, sound, deferred: true, gif: item.isGif,
+          onMessage: msg => {
+            if (!active() || st.player !== player) return;
+            if (msg.type === 'hello') begin();
+            else if (msg.type === 'playing') playing();
+            else if (msg.type === 'blocked') {
+              // A click inside the player frame carries user activation even when the browser blocks autoplay.
+              stage.dataset.frameInteraction = 'true';
+              if (document.activeElement === control) this.commandPlayer(player, 'focus-play');
+              control.hidden = true;
+            } else if (msg.type === 'swipe' || msg.type === 'navigate') {
+              if (msg.direction === 'next') go(1);
+              else if (msg.direction === 'previous') go(-1);
+              else if (msg.direction === 'down') this.closeLightbox();
+            } else if (msg.type === 'unavailable' || msg.type === 'error') {
+              this.dropPlayer(player);
+              st.player = null;
+              control.hidden = false;
+              delete stage.dataset.playing;
+              delete stage.dataset.frameInteraction;
+              fallback(msg.type);
+            }
+          }
+        });
+        if (!player) { fallback('unavailable'); return; }
+        st.player = player;
+        start = () => { if (player.hello) this.commandPlayer(player, 'play'); };
+        stage.append(player.frame);
+      };
+
+      const blob = async () => {
+        start = null;
+        note.textContent = 'Loading video…';
+        stage.append(note);
+        try {
+          const url = await this.getVideoBlobUrl(item.videoUrl);
+          if (!active()) return;
+          note.remove();
+          direct([url], () => { start = blob; failure(); });
+        } catch {
+          if (active()) { start = blob; failure(); }
+        }
+      };
+
+      let frameSource = 0;
+      const nativeFrame = () => {
+        framed(item.sources[frameSource], reason => {
+          if (reason !== 'unavailable' && ++frameSource < item.sources.length) nativeFrame();
+          else { start = native; failure(); }
+        });
+      };
+      const native = () => {
+        note.remove();
+        frameSource = 0;
+        direct(item.sources, nativeFrame);
+      };
+      if (!item.native) framed(item.videoUrl, blob);
+      else if (item.sources.length) native();
+      else {
+        control.hidden = true;
+        note.textContent = 'Video unavailable. Open the post to watch.';
+        stage.append(note);
       }
     }
 
@@ -3925,8 +4005,8 @@
       this.endHold(false);
       document.removeEventListener('click', this.onDocClick, true);
       document.removeEventListener('keydown', this.onDocKeydown, true);
-      document.removeEventListener('mouseover', this.onDocOver, true);
-      document.removeEventListener('mouseout', this.onDocOut, true);
+      document.removeEventListener('pointerover', this.onDocOver, true);
+      document.removeEventListener('pointerout', this.onDocOut, true);
       document.removeEventListener('submit', this.onDocSubmit, true);
       document.removeEventListener('paste', this.onDocPaste, true);
       document.removeEventListener('visibilitychange', this.onVisibility);

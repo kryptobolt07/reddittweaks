@@ -743,6 +743,11 @@ function inView(W, D) {
   W.URL.revokeObjectURL = () => {};
 }
 const wait = ms => new Promise(r => setTimeout(r, ms));
+function hoverClip(W, target, type = 'pointerover', relatedTarget = null) {
+  const event = new W.MouseEvent(type, { bubbles: true, relatedTarget });
+  Object.defineProperty(event, 'pointerType', { value: 'mouse' });
+  target.dispatchEvent(event);
+}
 
 test('loading shows Reddit’s own Media tab placeholder row', async t => {
   let release;
@@ -771,25 +776,25 @@ test('clip previews follow the start choices: hover with a mouse, Play only star
   const wrap = D.querySelector('.rt-vs-tile[data-uuid="uuidTwo456"] .rt-vs-media-wrap');
   const media = wrap.querySelector('.rt-vs-media');
   assert.equal(media.dataset.kind, 'video');
-  wrap.querySelector('img').dispatchEvent(new W.MouseEvent('mouseover', { bubbles: true }));
+  hoverClip(W, wrap.querySelector('img'));
   await wait(260);
   await flush();
   assert.ok(media.querySelector('video.rt-vs-video'), 'hovering plays the clip');
   assert.equal(media.dataset.previewing, 'playing');
   // Moving onto the tile's own buttons keeps it playing.
   const btn = wrap.querySelector('.rt-vs-icon-btn');
-  wrap.querySelector('img').dispatchEvent(new W.MouseEvent('mouseout', { bubbles: true, relatedTarget: btn }));
+  hoverClip(W, wrap.querySelector('img'), 'pointerout', btn);
   assert.ok(media.querySelector('video'), 'buttons are part of the tile');
-  wrap.querySelector('img').dispatchEvent(new W.MouseEvent('mouseout', { bubbles: true, relatedTarget: D.body }));
+  hoverClip(W, wrap.querySelector('img'), 'pointerout', D.body);
   assert.equal(media.querySelector('video'), null, 'leaving the tile stops it');
-  wrap.querySelector('img').dispatchEvent(new W.MouseEvent('mouseover', { bubbles: true }));
+  hoverClip(W, wrap.querySelector('img'));
   await wait(260);
   await flush();
   assert.equal(counter.fetches, 1, 'the clip is fetched once');
 
   controller.applySettings({ visualSearch: true, videoStart: 'play' });
   assert.equal(media.querySelector('video'), null, 'Only when I press Play stops automatic previews');
-  wrap.querySelector('img').dispatchEvent(new W.MouseEvent('mouseover', { bubbles: true }));
+  hoverClip(W, wrap.querySelector('img'));
   await wait(260);
   assert.equal(media.querySelector('video'), null);
 });
@@ -917,7 +922,7 @@ test('tile clips stream through the player frame, and the viewer continues from 
   inView(W, D);
   const tile = D.querySelector('.rt-vs-tile[data-uuid="uuidTwo456"]');
   const media = tile.querySelector('.rt-vs-media');
-  tile.querySelector('img').dispatchEvent(new W.MouseEvent('mouseover', { bubbles: true }));
+  hoverClip(W, tile.querySelector('img'));
   await wait(260);
   const frame = media.querySelector('iframe.rt-vs-frame');
   assert.ok(frame, 'a player frame, not a download');
@@ -942,10 +947,20 @@ test('tile clips stream through the player frame, and the viewer continues from 
   const vframe = viewer.querySelector('iframe.rt-vs-viewer-frame');
   const vhash = new URLSearchParams(vframe.src.split('#')[1]);
   assert.equal(vhash.get('mode'), 'viewer');
+  assert.equal(vhash.get('deferred'), '1', 'first playback waits for the parent’s visible overlay');
   assert.equal(vhash.get('t'), '3.40', 'continues from the tile’s moment');
   assert.equal(vhash.get('sound'), null, 'Keep muted by default (clickAudio)');
   assert.equal(viewer.querySelector('.rt-vs-viewer-title').textContent, SAMPLE_ITEMS[1].title);
   assert.equal(viewer.querySelector('.rt-vs-viewer-count').textContent, '2 / 2');
+  const mark = viewer.querySelector('[data-rt-video-play]');
+  assert.equal(mark.hidden, false);
+  frameSays(W, vframe, { type: 'time', paused: false, time: 3.4 });
+  assert.equal(mark.hidden, false, 'a seek or time update is not playback');
+  frameSays(W, vframe, { type: 'blocked', paused: true });
+  assert.equal(viewer.querySelector('.rt-vs-viewer-stage').dataset.frameInteraction, 'true');
+  frameSays(W, vframe, { type: 'playing' });
+  assert.equal(viewer.querySelector('.rt-vs-viewer-stage').dataset.playing, 'true');
+  assert.equal(viewer.querySelector('.rt-vs-viewer-stage').dataset.frameInteraction, undefined);
 
   // ← moves to the previous result; → back again.
   D.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
@@ -1323,6 +1338,41 @@ test('Reddit’s Media viewer keeps its result order through feed replacements a
     assert.equal(title(), expected);
   }
   assert.equal(count(), '5 / 9');
+});
+
+test('Media viewer requests Reddit’s continuation and can keep navigating after another page arrives', async t => {
+  const tile = id => `<div data-id="search-media-post-unit"><a href="/r/pics/comments/${id}/post/"><img data-post-media-primary src="https://i.redd.it/${id}.jpg"></a></div>`;
+  const partial = cursor => `<faceplate-loader loading="eager"></faceplate-loader><faceplate-partial loading="lazy" src="/svc/shreddit/search/?q=dog&amp;type=media&amp;cursor=${cursor}"></faceplate-partial>`;
+  const { W, D, controller } = setupUi(t, {
+    url: 'https://www.reddit.com/search/?q=dog&type=media',
+    html: `<!doctype html><main><search-media-feed>${['one', 'two', 'three', 'four'].map(tile).join('')}</search-media-feed>${partial('one')}</main>`
+  });
+  await controller.ready;
+  const requests = [];
+  D.addEventListener('rt-load-media-page', event => {
+    event.preventDefault();
+    requests.push(new W.URL(event.target.getAttribute('src'), W.location.href).searchParams.get('cursor'));
+  });
+  W.HTMLElement.prototype.scrollIntoView = () => assert.fail('paging should not move the grid when its loader handles the request');
+  D.querySelector('.rt-vs-native-expand').click();
+  const move = () => D.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+  const count = () => D.querySelector('.rt-vs-viewer-count').textContent;
+  assert.deepEqual(requests, []);
+  for (let i = 0; i < 7; i++) move();
+  assert.deepEqual(requests, ['one'], 'holding Next only requests the current continuation once');
+  assert.equal(count(), '4 / 4');
+  assert.equal(D.querySelector('.rt-vs-viewer-next').hidden, false);
+  const grid = D.querySelector('search-media-feed');
+  grid.insertAdjacentHTML('beforeend', ['five', 'six', 'seven', 'eight'].map(tile).join(''));
+  D.querySelector('faceplate-partial').remove();
+  D.querySelector('main').insertAdjacentHTML('beforeend', partial('two'));
+  controller.sync();
+  assert.equal(count(), '4 / 8');
+  move();
+  move();
+  assert.equal(count(), '6 / 8');
+  assert.deepEqual(requests, ['one', 'two']);
+  controller.closeLightbox({ restoreFocus: false });
 });
 
 test('NSFW results by default: the Visual tab follows the reader’s choice, and a search can still switch it off', async t => {

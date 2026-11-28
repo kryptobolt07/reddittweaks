@@ -876,12 +876,15 @@ dialog.rt-vs-viewer::backdrop {
   border: 0;
   background: transparent;
   opacity: 0;
+  pointer-events: none;
   transition: opacity 160ms ease;
 }
 
+.rt-vs-viewer-stage[data-frame-interaction] .rt-vs-viewer-frame,
 .rt-vs-viewer-stage[data-playing="true"] .rt-vs-viewer-frame,
 .rt-vs-viewer-stage[data-playing="true"] .rt-vs-viewer-video {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .rt-vs-viewer-stage[data-playing="true"] .rt-vs-viewer-img {
@@ -1212,19 +1215,20 @@ dialog.rt-vs-viewer::backdrop {
 /* Reddit's own Media tab: full screen from a button on the media (top right), on hover with a mouse, always on touch. */
 [data-id="search-media-post-unit"]:has(> .rt-vs-native-expand) {
   position: relative;
+  isolation: isolate;
 }
 
 [data-id="search-media-post-unit"] .rt-vs-native-expand {
   position: absolute;
   top: 8px;
   inset-inline-end: 8px;
-  z-index: 3;
+  z-index: 6;
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease;
 }
 
-[data-id="search-media-post-unit"]:hover .rt-vs-native-expand,
+[data-id="search-media-post-unit"]:is(:hover, :focus-within) .rt-vs-native-expand,
 [data-id="search-media-post-unit"] .rt-vs-native-expand:focus-visible {
   opacity: 1;
   pointer-events: auto;

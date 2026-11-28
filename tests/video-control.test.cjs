@@ -2297,6 +2297,22 @@ test('Media search tiles preview from the poster and the center Play control sta
  assert.equal(cardClicks,0);
  assert.equal(control.resultOpen,undefined);
 });
+test('a mouse can preview a Media tile on a touch-capable desktop when Reddit’s play command stalls',async t=>{
+ const p=page(t);searchTile(p);phone(p);
+ const control=await hoverController(p,{videoStart:'preview'});
+ p.video.src='https://v.redd.it/test/DASH_480.mp4';
+ let handled=0;
+ p.player.addEventListener('rt-play-video',event=>{handled++;event.preventDefault();});
+ const setTimer=p.W.setTimeout.bind(p.W);
+ p.W.setTimeout=(fn,ms)=>setTimer(fn,ms===1500?20:ms);
+ pointer(p);
+ await waitForHover();
+ assert.equal(handled,1);
+ assert.equal(p.video.paused,false,'the same video can start directly when the native command stalls');
+ assert.equal(p.video.muted,true);
+ control.stopHover();
+ assert.equal(p.video.paused,true);
+});
 test('a paused feed video can use the shared Play control before Reddit draws its poster button',async t=>{
  const p=page(t);
  await hoverController(p,{videoStart:'play'});

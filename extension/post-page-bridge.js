@@ -319,6 +319,24 @@
     event.preventDefault();
     Promise.resolve(player.play()).catch(()=>{});
   });
+  // The Media viewer advances the visible search's own continuation while its modal covers the page.
+  const mediaContinuations=new WeakSet();
+  document.addEventListener('rt-load-media-page',event=>{
+    const partial=event.target;
+    if(!document.documentElement.hasAttribute('data-rt-vs-viewer') || !partial?.isConnected ||
+       !partial.matches?.('main faceplate-partial[loading="lazy"][src]') || typeof partial.loadContent!=='function')return;
+    let previous=partial.previousElementSibling;
+    while(previous?.matches('faceplate-loader, script, style'))previous=previous.previousElementSibling;
+    if(!previous?.matches('search-media-feed'))return;
+    let url;
+    try{url=new URL(partial.getAttribute('src'),location.href);}catch{return;}
+    if(url.origin!==location.origin || url.pathname!=='/svc/shreddit/search/' ||
+       url.searchParams.get('type')!=='media' || !url.searchParams.has('cursor'))return;
+    event.preventDefault();
+    if(partial.isLoading || mediaContinuations.has(partial))return;
+    mediaContinuations.add(partial);
+    Promise.resolve().then(()=>partial.isConnected && partial.loadContent()).catch(()=>{}).finally(()=>mediaContinuations.delete(partial));
+  });
   const viewportOverrides=new WeakMap();
   const detailEmbed=node=>{
     const id=route()?.id;

@@ -993,13 +993,14 @@
     path.find(node=>node.matches?.(SEARCH_TILE+' a[href]'))?.querySelector(Overlay.searchPlayer);
   }
   hover(event){
-   if(!this.configured || this.touch || this.pending?.held || this.embedPending?.held || event.pointerType!=='mouse' ||
+   if(!this.configured || this.pending?.held || this.embedPending?.held || event.pointerType!=='mouse' ||
       this.doc.documentElement.hasAttribute('data-rt-vs-viewer') || (!event.isTrusted && !globalThis.__rtVideoControlTest))return;
    const path=event.composedPath(),to=event.relatedTarget,within=(node,root)=>Boolean(node?.nodeType && (node===root || root.contains(node)));
    if(this.embedHover(event,path,to,within))return;
    const current=this.hovered,card=current && this.cardOf(current),player=this.pointerPlayer(path);
    if(event.type==='pointerout'){
-    if(!current || player===current && within(to,current))return;
+    if(!current || player===current && (within(to,current) ||
+       current.matches(Overlay.searchPlayer) && current.closest('a[href]') && within(to,current.closest('a[href]'))))return;
     const preview=this.previews.get(current);
     // Before it plays, the preview is the player's alone; once playing, it belongs to the card.
     if(!preview?.active || !preview.played){if(player===current)this.stopHover();return;}
@@ -1028,7 +1029,7 @@
   // shows again or scrolling stops, the media under the last known pointer position is treated as just hovered
   // (docs/feed-controls-ux-plan.md, 11).
   recheckPointer(){
-   if(!this.active || this.dead || !this.configured || this.touch || !this.pointer || this.doc.hidden || this.hovered || this.ePreview)return;
+   if(!this.active || this.dead || !this.configured || !this.pointer || this.doc.hidden || this.hovered || this.ePreview)return;
    if(!kinds.some(kind=>this.startMode(kind)==='preview'))return;
    const target=this.doc.elementFromPoint?.(this.pointer.x,this.pointer.y);if(!target)return;
    const path=[];for(let node=target;node;node=node.parentNode || node.host)path.push(node);path.push(this.win);
@@ -1059,7 +1060,7 @@
    this.previews.set(player,preview);
    video.muted=true;
    player.dispatchEvent(new this.win.Event('rt-prepare-feed-preview',{bubbles:true}));
-   if(activated || video.readyState>=1)this.playPreview(player,preview);
+   if(activated || video.readyState>=1 || player.matches(Overlay.searchPlayer) && video.getAttribute('src'))this.playPreview(player,preview);
    // A preview that never gets metadata or never plays is dropped, so the next hover or pick can try again.
    this.win.clearTimeout(this.previewWatch);
    this.previewWatch=this.win.setTimeout(()=>{
@@ -1113,8 +1114,16 @@
   playPreview(player,preview){
    if(preview.requested || this.hovered!==player)return;
    preview.requested=true;
-   this.play(player,preview.video)?.catch?.(()=>{
-    if(this.previews.get(player)===preview && preview.active && preview.video.paused)this.failPreview();
+   const {video}=preview;
+   const waiting=()=>this.hovered===player && this.previews.get(player)===preview && preview.active && video.paused;
+   this.play(player,video)?.catch?.(async()=>{
+    if(!waiting())return;
+    // A Media tile's native controller can decline playback while its viewport state catches up.
+    // The same muted video can start directly without waiting for another hover or a click.
+    if(player.matches(Overlay.searchPlayer) && (video.currentSrc || video.getAttribute('src'))){
+     try{await video.play();return;}catch{}
+    }
+    if(waiting())this.failPreview();
    });
   }
   failPreview(){

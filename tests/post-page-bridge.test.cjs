@@ -73,6 +73,26 @@ test('video preload only asks the current post detail player to load metadata',t
  assert.deepEqual(players,[['post_detail_screen','abc12','metadata']]);
  assert.equal(calls.length,0);
 });
+test('Media viewer calls only the native Media continuation and shares an in-flight load',async t=>{
+ const {W,calls}=setup(t,{url:'https://www.reddit.com/search/?q=cat&type=media'});
+ const d=W.document,main=d.body.appendChild(d.createElement('main'));
+ main.innerHTML='<search-media-feed></search-media-feed><faceplate-loader></faceplate-loader><faceplate-partial loading="lazy" src="/svc/shreddit/search/?type=media&amp;cursor=next"></faceplate-partial>';
+ const partial=main.lastElementChild;
+ let loads=0,release;
+ partial.loadContent=()=>{loads++;return new Promise(resolve=>{release=resolve;});};
+ const request=()=>partial.dispatchEvent(new W.Event('rt-load-media-page',{bubbles:true,cancelable:true}));
+ assert.equal(request(),true);
+ d.documentElement.setAttribute('data-rt-vs-viewer','');
+ assert.equal(request(),false);
+ assert.equal(request(),false);
+ await Promise.resolve();
+ assert.equal(loads,1);
+ release();
+ await new Promise(resolve=>setImmediate(resolve));
+ partial.setAttribute('src','https://example.test/svc/shreddit/search/?type=media&cursor=next');
+ assert.equal(request(),true);
+ assert.equal(calls.length,0,'pagination stays with the native loader');
+});
 test('comment preview asks Reddit to prepare only media in open threads of the current post',t=>{
  const {W}=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/title/'});
  const loads=[];

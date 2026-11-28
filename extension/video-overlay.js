@@ -9,6 +9,16 @@
   const gif = '[gif], [post-type="gif"], [data-media-type="gif"]';
   const bindings = new WeakMap();
 
+  function redditVideo(value) {
+    try {
+      const url = new URL(String(value || '').replace(/&amp;/gi, '&'));
+      if (url.protocol === 'https:' && !url.username && !url.password && !url.port &&
+          /^(?:i|v|packaged-media|preview|cf\.preview|external-preview)\.redd\.it$/i.test(url.hostname) &&
+          /\.(?:mp4|webm)$/i.test(url.pathname)) return url.href;
+    } catch {}
+    return '';
+  }
+
   function mark(doc) {
     const disc = doc.createElement('span');
     disc.setAttribute('aria-hidden', 'true');
@@ -96,5 +106,5 @@
     } });
   }
 
-  globalThis.RTVideoOverlay = Object.freeze({ mark, center, button, styleNative, bindPlayer, searchTile, searchPlayer, gif });
+  globalThis.RTVideoOverlay = Object.freeze({ mark, center, button, styleNative, bindPlayer, redditVideo, searchTile, searchPlayer, gif });
 })();

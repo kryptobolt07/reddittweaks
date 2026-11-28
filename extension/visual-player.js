@@ -5,10 +5,11 @@
 (() => {
   'use strict';
   const SRC_RE = /^https:\/\/video\.infini\.wtf\/[A-Za-z0-9_-]{6,40}\/original\.mp4$/;
-  const PARENT_RE = /^https:\/\/(?:www|new|sh)\.reddit\.com$/;
+  const PARENT_RE = /^https:\/\/(?:(?:www|new|sh)\.)?reddit\.com$/;
   const params = new URLSearchParams(location.hash.slice(1));
   const src = params.get('src') || '';
   const mode = params.get('mode') === 'viewer' ? 'viewer' : 'preview';
+  const deferred = mode === 'viewer' && params.get('deferred') === '1';
   const id = (params.get('id') || '').slice(0, 40);
   const video = document.querySelector('video');
   let parentOrigin = '';
@@ -28,7 +29,7 @@
   };
 
   post('hello');
-  if (!SRC_RE.test(src) || !parentOrigin) {
+  if ((!SRC_RE.test(src) && !(mode === 'viewer' && RTVideoOverlay.redditVideo(src))) || !parentOrigin) {
     post('error', { error: 'invalid' });
     return;
   }
@@ -38,19 +39,36 @@
   video.loop = true;
   video.muted = !wantSound;
   video.controls = mode === 'viewer';
-  video.preload = 'auto';
+  video.preload = deferred ? 'none' : 'auto';
   if (mode === 'viewer') video.setAttribute('controlslist', 'nodownload noremoteplayback');
   video.src = src;
   video.addEventListener('loadedmetadata', () => {
     if (Number.isFinite(start) && start > 0 && start < (video.duration || Infinity)) video.currentTime = start;
     post('ready');
   }, { once: true });
-  const play = () => video.play().then(() => post('playing'), () => {
-    // Sound without user activation is refused: keep going muted and say so.
-    if (!video.muted) { video.muted = true; video.play().then(() => post('playing', { soundBlocked: true }), () => post('blocked')); }
-    else post('blocked');
+  const playButton = mode === 'viewer' ? RTVideoOverlay.button(document, params.get('gif') === '1') : null;
+  if (playButton) {
+    playButton.hidden = true;
+    playButton.addEventListener('click', () => play());
+    document.body.append(playButton);
+  }
+  const blocked = error => {
+    if (error?.name !== 'NotAllowedError') return;
+    if (playButton) playButton.hidden = false;
+    post('blocked');
+  };
+  const play = () => video.play().catch(error => {
+    if (!video.muted && error?.name === 'NotAllowedError') {
+      video.muted = true;
+      video.play().catch(blocked);
+    } else blocked(error);
   });
-  play();
+  video.addEventListener('playing', () => {
+    document.body.dataset.playing = 'true';
+    if (playButton) playButton.hidden = true;
+    post('playing');
+  });
+  if (!deferred) play();
 
   let last = 0;
   video.addEventListener('timeupdate', () => {
@@ -65,6 +83,11 @@
   // Touches on the clip land in this frame, never in the viewer around it: report swipes so the viewer can move to
   // the next result (left / right) or close (down) the same as it does for images.
   if (mode === 'viewer') {
+    document.addEventListener('keydown', e => {
+      if (e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+      e.preventDefault();
+      post('navigate', { direction: e.key === 'ArrowRight' ? 'next' : 'previous' });
+    }, true);
     let touch = null;
     document.addEventListener('touchstart', e => {
       const t = e.touches.length === 1 ? e.touches[0] : null;
@@ -92,6 +115,7 @@
       case 'unmute': video.muted = false; if (video.paused) play(); break;
       case 'seek': if (Number.isFinite(msg.time)) video.currentTime = Math.max(0, msg.time); break;
       case 'state': post('state'); break;
+      case 'focus-play': playButton?.focus({ preventScroll: true }); break;
       case 'stop':
         video.pause();
         video.removeAttribute('src');
