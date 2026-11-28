@@ -1,3 +1,10 @@
+# 0.67.6 preview
+
+- **Legacy Reddit videos.** Media hover previews and fullscreen playback now accept Reddit video files named like `DASH_600_K`. Older posts can link to these MP4s without a filename extension.
+- **Patch increment.** This release fixes playback for an existing Reddit source format.
+- **Verification.** The first video result reported in signed-in Brave failed in 0.67.5. Brave played its direct extensionless source at 240p. A Brave fixture verified hover, fullscreen and the loading ring with the same URL format. The exact result in the updated viewer requires reloading the unpacked extension.
+- **Release checks.** All 2,492 tests passed. Both archives matched their unpacked builds, and Firefox lint reported zero warnings or errors.
+
 # 0.67.5 preview
 
 - **Media results with video thumbnails.** Reddit sometimes serves a Play badge and still image in place of the native tile player. These results now play on hover or on demand, and in the fullscreen viewer. The source is fetched only when playback is requested.
