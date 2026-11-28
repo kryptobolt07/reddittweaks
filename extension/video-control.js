@@ -321,6 +321,25 @@
     if(Math.hypot(event.clientX-this.hold2x.x,event.clientY-this.hold2x.y)>10)this.endHold2x(false);
    };
    this.onPointerEnd=event=>{this.endHold2x(event.type==='pointerup');this.endHoldPreview(event.type==='pointerup');};
+   this.onPreviewActivation=event=>{
+    if(!this.active || this.doc.hidden || !event.isTrusted && !globalThis.__rtVideoControlTest)return;
+    if(event.type==='keydown' && (event.repeat || event.key==='Escape' || event.metaKey || event.ctrlKey || event.altKey))return;
+    if(event.button>0 || event.isPrimary===false || this.holdPreview || this.hold2x)return;
+    // Taps on the selected player already have their own play and controls handlers.
+    if(event.composedPath().some(node=>node.matches?.(MEDIA_NODES+','+ANY_EMBED)))return;
+    if(!this.touch){
+     if(this.previewNeedsActivation){this.previewNeedsActivation=false;this.recheckPointer();}
+     return;
+    }
+    if(this.loopNeedsActivation || [...this.loops.values()].some(video=>video.paused) ||
+       this.previewNeedsActivation || this.viewing && this.video(this.hovered)?.paused){
+     this.previewNeedsActivation=false;
+     this.loopNeedsActivation=false;
+     this.pickInView(true,true);
+    }
+    const preview=this.ePreview;
+    if(preview?.view && preview.active && !this.outsideViewport(preview.embed))this.retryEmbedPreview(preview);
+   };
    this.onContextMenu=event=>{if(this.hold2x?.engaged || this.holdPreview)event.preventDefault();};
    this.onHover=event=>this.hover(event);
    this.onTabVisibility=()=>{
@@ -346,8 +365,8 @@
     if(!embed || !link || !this.blockEmbedLinks(!this.isDetailEmbed(embed)))return;
     if(/^https?:/.test(link.href) && new URL(link.href).origin!==this.win.location.origin){event.preventDefault();event.stopImmediatePropagation();}
    };
-   this.onRoute=()=>{this.hideSoundPrompt();this.endHoldPreview(false);this.stopHover();this.endHold2x(false);this.exitMini(false);this.handoff();this.adoptResultOpen();this.win.setTimeout(()=>this.directPlayer(),0);this.queueLeftBehind();};
-   this.onBack=()=>{this.stopHover();this.endHold2x(false);this.exitMini(false);this.clearHandoff();this.clearEmbedHandoff();this.directPlayer();};
+   this.onRoute=()=>{this.previewNeedsActivation=this.loopNeedsActivation=false;this.hideSoundPrompt();this.endHoldPreview(false);this.stopHover();this.endHold2x(false);this.exitMini(false);this.handoff();this.adoptResultOpen();this.win.setTimeout(()=>this.directPlayer(),0);this.queueLeftBehind();};
+   this.onBack=()=>{this.previewNeedsActivation=this.loopNeedsActivation=false;this.stopHover();this.endHold2x(false);this.exitMini(false);this.clearHandoff();this.clearEmbedHandoff();this.directPlayer();};
    this.onMiniDismissed=event=>{
     const node=event.target;
     if(node)this.miniDismissed.add(node);
@@ -380,6 +399,7 @@
     if(this.startMode('embed')==='play' && this.feedEmbed(embed) && embed.dataset.rtEmbedUsed!=='1'){
      embed.dispatchEvent(new this.win.Event('rt-embed-stop',{bubbles:true}));this.cover(embed,true);return;
     }
+    if(this.ePreview?.embed===embed)this.ePreview.playing=true;
     if(this.volumeMemory && this.savedVolume){
      embed.dataset.rtTargetVolume=String(this.savedVolume.volume);
      embed.dispatchEvent(new this.win.Event('rt-embed-volume',{bubbles:true}));
@@ -410,6 +430,7 @@
        state.direct=true;state.pendingStart=null;state.queue.clear();
        if(typeof event.data.playing==='boolean')state.playing=event.data.playing;
        if(state.playing)state.played=true;
+       if(this.ePreview?.embed===embed && typeof event.data.playing==='boolean')this.ePreview.playing=event.data.playing;
        if(this.ePreview?.frame?.frame===frame){
         // A preview that began behind the click layer continues layerless: the frame reports taps itself.
         const preview=this.ePreview;
@@ -477,6 +498,7 @@
    if(this.active || this.dead)return;
    this.active=true;
    const doc=this.doc,win=this.win;
+   for(const type of ['pointerup','keydown'])win.addEventListener(type,this.onPreviewActivation,true);
    for(const type of ['pointerdown','keydown','click'])doc.addEventListener(type,this.onGesture,true);
    doc.addEventListener('pointermove',this.onPointerMove,true);
    for(const type of ['pointerup','pointercancel'])win.addEventListener(type,this.onPointerEnd,true);
@@ -516,6 +538,7 @@
    win.clearTimeout(this.posterTimer);this.posterTimer=null;
    win.clearTimeout(this.settleTimer);win.clearTimeout(this.dwellTimer);
    win.clearTimeout(this.pointerTimer);win.clearTimeout(this.previewWatch);this.retryPreview=null;
+   this.previewNeedsActivation=this.loopNeedsActivation=false;
    win.clearTimeout(this.volumeSaveTimer);this.volumeSaveTimer=null;
    this.stopHover();
    this.endHold2x(false);
@@ -525,6 +548,7 @@
    this.releaseParkedEmbeds();
    for(const node of [...this.managedViewport])this.manageViewport(node,false);
    for(const type of ['pointerdown','keydown','click'])doc.removeEventListener(type,this.onGesture,true);
+   for(const type of ['pointerup','keydown'])win.removeEventListener(type,this.onPreviewActivation,true);
    doc.removeEventListener('pointermove',this.onPointerMove,true);
    for(const type of ['pointerup','pointercancel'])win.removeEventListener(type,this.onPointerEnd,true);
    doc.removeEventListener('contextmenu',this.onContextMenu,true);
@@ -1001,7 +1025,7 @@
    if(this.hovered===player){this.win.clearTimeout(this.hoverTimer);this.hovered=null;this.viewing=false;}
    if(retry)this.retryPreview=player;
   }
-  startPreview(player){
+  startPreview(player,activated=false){
    const video=this.video(player);
    if(this.hovered!==player || !player.isConnected)return false;
    if(this.doc.hidden || closedThread(player)){this.abandonPreview(player);return false;}
@@ -1019,22 +1043,32 @@
    this.previews.set(player,preview);
    video.muted=true;
    player.dispatchEvent(new this.win.Event('rt-prepare-feed-preview',{bubbles:true}));
-   if(video.readyState>=1)this.playPreview(player,preview);
+   if(activated || video.readyState>=1)this.playPreview(player,preview);
    // A preview that never gets metadata or never plays is dropped, so the next hover or pick can try again.
    this.win.clearTimeout(this.previewWatch);
-   this.previewWatch=this.win.setTimeout(()=>{if(this.previews.get(player)===preview && preview.active && !preview.played && this.hovered===player)this.stopHover();},PREVIEW_STALL_MS);
+   this.previewWatch=this.win.setTimeout(()=>{
+    if(this.previews.get(player)===preview && preview.active && preview.video.paused && this.hovered===player)this.failPreview();
+   },PREVIEW_STALL_MS);
    return true;
   }
-  startLoop(player){
+  startLoop(player,activated=false){
    const video=this.video(player);
-   if(!video || this.started.has(video) || this.loops.get(player)===video)return;
+   if(!video || this.started.has(video))return;
+   if(this.loops.get(player)===video){
+    if(activated)this.playLoop(player,video);
+    return;
+   }
    this.loops.set(player,video);
    video.muted=true;video.loop=true;
    player.dispatchEvent(new this.win.Event('rt-prepare-feed-preview',{bubbles:true}));
-   if(video.readyState>=1)this.playLoop(player,video);
+   if(activated || video.readyState>=1)this.playLoop(player,video);
   }
   playLoop(player,video){
-   if(!closedThread(player) && video.paused)this.play(player,video)?.catch?.(()=>{if(this.loops.get(player)===video)this.stopLoop(player);});
+   if(!closedThread(player) && video.paused)this.play(player,video)?.catch?.(()=>{
+    if(this.loops.get(player)!==video || !video.paused)return;
+    this.loopNeedsActivation=true;
+    this.stopLoop(player);
+   });
   }
   // Previews and automatic loops hold Reddit's player muted (page bridge, rt-prepare-feed-preview); this hands it back.
   releaseMuted(player){player?.dispatchEvent?.(new this.win.Event('rt-release-feed-preview',{bubbles:true}));}
@@ -1064,23 +1098,12 @@
    if(preview.requested || this.hovered!==player)return;
    preview.requested=true;
    this.play(player,preview.video)?.catch?.(()=>{
-    if(this.previews.get(player)===preview && preview.active)this.stopHover();
-    this.retryOnActivation();
+    if(this.previews.get(player)===preview && preview.active && preview.video.paused)this.failPreview();
    });
   }
-  // Some phone browsers (Firefox for Android among them) refuse even muted autoplay until the page has had a tap. The
-  // preview that was refused is tried again on the reader's next tap or key press, instead of waiting for a video to be
-  // played by hand.
-  retryOnActivation(){
-   if(this.activationRetry || this.dead || this.win.navigator?.userActivation?.hasBeenActive===true)return;
-   const retry=()=>{
-    for(const type of ['pointerup','keydown'])this.win.removeEventListener(type,retry,true);
-    this.activationRetry=null;
-    if(this.dead || !this.active)return;
-    this.win.setTimeout(()=>{if(this.touch)this.pickInView(true);else this.recheckPointer();},0);
-   };
-   this.activationRetry=retry;
-   for(const type of ['pointerup','keydown'])this.win.addEventListener(type,retry,true);
+  failPreview(){
+   this.previewNeedsActivation=true;
+   this.stopHover();
   }
   stopHover(){
    this.stopEmbed();
@@ -1243,7 +1266,10 @@
   }
   framePlayback(frame,state,kind,user=false){
    const embed=embedOfFrame(frame),pending=this.embedPending;
-   if(kind==='play' || kind==='pause')state.reported=kind;
+   if(kind==='play' || kind==='pause'){
+    state.reported=kind;
+    if(this.ePreview?.embed===embed)this.ePreview.playing=kind==='play';
+   }
    if(kind==='pause'){state.playing=false;if(this.directEmbed?.frame===frame && this.directEmbed.phase==='trial')this.directEmbedFallback(this.directEmbed);}
    if(kind!=='play')return;
    state.played=true;state.playing=true;
@@ -1273,14 +1299,14 @@
       state.drawTimer=this.win.setTimeout(()=>this.finishEmbedDraw(frame),this.held(state)?1800:400);
      }
      if(state.direct || state.kind==='flags')return;
-     this.subscribe(frame,state);this.win.setTimeout(()=>this.flushFrameCommands(frame,state),300);
+     this.subscribe(frame,state);this.win.setTimeout(()=>this.flushFrameCommands(frame,state,Boolean(state.readySeen)),300);
     });
    }
    return state;
   }
-  flushFrameCommands(frame,state){
+  flushFrameCommands(frame,state,clear=true){
    for(const messages of state.queue.values())for(const data of messages)this.post(frame,data);
-   state.queue.clear();
+   if(clear)state.queue.clear();
   }
   subscribe(frame,state){
    if(state.kind==='playerjs')for(const value of ['ready','play','pause','ended'])this.post(frame,JSON.stringify({context:'player.js',version:'0.0.11',method:'addEventListener',value,listener:'rt-'+value}));
@@ -1682,6 +1708,7 @@
   startEmbed(preview){
    const {embed}=preview;
    if(this.ePreview!==preview || this.doc.hidden || !embed.isConnected || this.outsideViewport(embed))return;
+   preview.startedBeforeActivation=this.win.navigator?.userActivation?.hasBeenActive===false;
    this.preparePoster(embed);
    embed.dataset.rtEmbedPreview='on';
    if(vimeoLite(embed) || embed.shadowRoot?.querySelector('[data-rt-parked-cover][data-rt-loaded]'))this.uncover(embed);
@@ -1740,6 +1767,25 @@
    const label=preview.frame?.kind==='flags' && !this.held(this.frameState(preview.frame.frame))?'Use player’s sound control':'Turn sound on';
    preview.sound.setAttribute('aria-label',label);preview.sound.title=label;
   }
+  retryEmbedPreview(preview){
+   if(preview.playing)return;
+   if(!preview.frame){
+    preview.embed.dispatchEvent(new this.win.Event('rt-embed-preview',{bubbles:true,cancelable:true}));
+    return;
+   }
+   const {frame,src,kind}=preview.frame;
+   if(!frame.isConnected)return;
+   const state=this.frameState(frame);
+   if(kind==='flags' && !state.direct){
+    // A flag-only player cannot report playback. Try its muted URL once after page interaction.
+    if(preview.startedBeforeActivation && !preview.reloadedAfterActivation){
+     preview.reloadedAfterActivation=true;
+     allowAutoplay(frame);frame.setAttribute('src',flagged(src,false));
+    }
+   }else{
+    this.command(frame,'mute');this.command(frame,'play');
+   }
+  }
   useEmbed(preview,sound){
    if(this.ePreview!==preview)return;
    const wantSound=sound || this.clickAudio==='unmute';
@@ -1758,7 +1804,12 @@
    this.dropLayer(preview);
    preview.embed.dataset.rtEmbedUsed='1';
    this.watchFeedSound(preview.embed);
-   if(preview.frame){this.restoreHost(preview);if(sound)this.frameSound(preview.frame,reload);return;}
+   if(preview.frame){
+    this.restoreHost(preview);
+    if(sound)this.frameSound(preview.frame,reload);
+    else if(preview.view && !preview.playing){this.command(preview.frame.frame,'mute');this.command(preview.frame.frame,'play');}
+    return;
+   }
    if(sound)preview.embed.dispatchEvent(new this.win.Event('rt-embed-sound',{bubbles:true}));
    else preview.embed.dispatchEvent(new this.win.Event('rt-embed-use-muted',{bubbles:true}));
   }
@@ -2589,7 +2640,7 @@
   }
   // After scrolling stops, the feed video at least 60 % visible and nearest the middle of the screen previews, one at a
   // time; a playing preview keeps going while it stays at least half on screen.
-  pickInView(settled=true){
+  pickInView(settled=true,activated=false){
    if(this.dead || !this.active || this.doc.hidden || this.pending?.held || this.embedPending?.held)return;
    // Once the viewer has taken over an embed, a nearby automatic preview cannot steal playback or its controls.
    if([...this.feedSoundEmbeds].some(embed=>embed.isConnected && this.feedEmbed(embed) && !this.outsideViewport(embed)))return;
@@ -2603,12 +2654,12 @@
     const box=node.getBoundingClientRect();if(!(box.height>0))continue;
     const shown=(Math.min(box.top+box.height,height)-Math.max(box.top,0))/box.height,gap=Math.abs(box.top+box.height/2-middle);
     if(kind==='gif'){
-     if(shown>=IN_VIEW)this.startLoop(node);else if(shown<0.5)this.stopLoop(node);
+     if(shown>=IN_VIEW)this.startLoop(node,activated);else if(shown<0.5)this.stopLoop(node);
      continue;
     }
     if(shown>=IN_VIEW && gap<distance){best=node;distance=gap;}
    }
-   if(best && (best===this.hovered && this.previews.get(best)?.active || best===this.ePreview?.embed))return;
+   if(best && (best===this.hovered && this.previews.get(best)?.active && !(activated && this.video(best)?.paused) || best===this.ePreview?.embed))return;
    if(this.hovered && !this.viewing || this.ePreview && !this.ePreview.view)return;
    if(!settled && this.startMode(mediaKind(this.hovered || this.ePreview?.embed))==='preview' && (this.viewing || this.ePreview?.view))return;
    this.stopHover();
@@ -2619,7 +2670,7 @@
     return;
    }
    this.hovered=best;this.viewing=true;
-   this.startPreview(best);
+   this.startPreview(best,activated);
   }
   destroy(){
    for(const timer of this.leftBehindTimers || [])this.win.clearTimeout(timer);this.hideSoundPrompt();this.dead=true;

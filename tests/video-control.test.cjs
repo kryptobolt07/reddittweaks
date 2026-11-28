@@ -2054,6 +2054,91 @@ test('a stalled preview is dropped so a later pick can try again',async t=>{
  watch[0]();
  assert.equal(controller.hovered,null,'the stalled preview is released');
 });
+test('phone preview retries a refused native start synchronously on the next page tap',async t=>{
+ const p=page(t);phone(p,true,130);activate(p,{hasBeenActive:true,isActive:false});
+ const controller=await hoverController(p);
+ let attempts=0,inGesture=false;
+ p.video.play=()=>{
+  attempts++;
+  assert.equal(p.video.muted,true);
+  if(!inGesture)return Promise.reject(new p.W.DOMException('Autoplay blocked','NotAllowedError'));
+  p.start();return Promise.resolve();
+ };
+ controller.pickInView(true);await flush();
+ assert.equal(attempts,1);assert.equal(p.video.paused,true);
+ pointer(p,'pointerup','touch');
+ assert.equal(attempts,1,'tapping media is left to its own controls');
+ inGesture=true;
+ pointer(p,'pointerup','touch',{target:p.d.body});
+ inGesture=false;
+ assert.equal(attempts,2);assert.equal(p.video.paused,false);
+});
+test('a blocked phone GIF retries muted on a page tap with or without an active embed',async t=>{
+ for(const withEmbed of [false,true]){
+  const p=page(t);phone(p,true,130);p.player.setAttribute('gif','');
+  const e=withEmbed?embed(p):null;
+  if(e)e.node.getBoundingClientRect=()=>({top:100,height:300,bottom:400});
+  const controller=await hoverController(p,{gifStart:'preview'});
+  let attempts=0,inGesture=false;
+  p.video.play=()=>{
+   attempts++;assert.equal(p.video.muted,true);assert.equal(p.video.loop,true);
+   if(!inGesture)return Promise.reject(new p.W.DOMException('Autoplay blocked','NotAllowedError'));
+   p.start();return Promise.resolve();
+  };
+  controller.pickInView(true);await flush();
+  assert.equal(attempts,1);assert.equal(p.video.paused,true);
+  if(e)e.node.dispatchEvent(new p.W.Event('rt-embed-playing',{bubbles:true}));
+  inGesture=true;
+  pointer(p,'pointerup','touch',{target:p.d.body});
+  inGesture=false;
+  assert.equal(attempts,2);assert.equal(p.video.paused,false);
+  if(e){assert.equal(controller.ePreview.embed,e.node);assert.deepEqual(e.calls,['rt-embed-preview']);}
+ }
+});
+test('phone preview retries an unconfirmed embed in place and leaves playing embeds alone',async t=>{
+ const p=page(t);phone(p,true,-900);
+ const e=embed(p);
+ e.node.getBoundingClientRect=()=>({top:100,height:300,bottom:400});
+ const controller=await hoverController(p);
+ controller.pickInView(true);
+ assert.deepEqual(e.calls,['rt-embed-preview']);
+ pointer(p,'pointerup','touch',{target:p.d.body});
+ assert.deepEqual(e.calls,['rt-embed-preview','rt-embed-preview']);
+ e.node.dispatchEvent(new p.W.Event('rt-embed-playing',{bubbles:true}));
+ pointer(p,'pointerup','touch',{target:p.d.body});
+ assert.deepEqual(e.calls,['rt-embed-preview','rt-embed-preview']);
+});
+test('a flag-only phone preview gets one muted retry after its first page activation',async t=>{
+ const p=page(t);phone(p,true,-900);activate(p,{hasBeenActive:false});
+ const e=frameEmbed(p,'https://www.redgifs.com/ifr/example');
+ e.node.getBoundingClientRect=()=>({top:100,height:300,bottom:400});
+ const controller=await hoverController(p);
+ controller.pickInView(true);
+ const loads=[],setAttribute=e.frame.setAttribute.bind(e.frame);
+ e.frame.setAttribute=(name,value)=>{if(name==='src')loads.push(value);setAttribute(name,value);};
+ activate(p,{hasBeenActive:true,isActive:true});
+ pointer(p,'pointerup','touch',{target:p.d.body});
+ pointer(p,'pointerup','touch',{target:p.d.body});
+ assert.equal(loads.length,1);
+ assert.equal(new URL(loads[0]).searchParams.get('muted'),'1');
+});
+test('slow iframe protocols receive the muted start again after readiness',async t=>{
+ const p=page(t);phone(p,true,-900);
+ const c=await controlled(p);
+ c.node.getBoundingClientRect=()=>({top:100,height:300,bottom:400});
+ c.controller.pickInView(true);
+ assert.equal(c.controller.ePreview?.embed,c.node);
+ assert.deepEqual(c.commands(),['mute','play']);
+ c.frame.dispatchEvent(new p.W.Event('load'));
+ await new Promise(resolve=>setTimeout(resolve,320));
+ assert.equal(c.controller.frameState(c.frame).readySeen,undefined);
+ assert.equal(c.controller.frameState(c.frame).queue.size,2);
+ const before=c.commands().length;
+ p.W.dispatchEvent(new p.W.MessageEvent('message',{data:JSON.stringify({context:'player.js',event:'ready'}),source:c.frame.contentWindow}));
+ assert.deepEqual(c.commands().slice(before),['mute','play']);
+ pointer(p,'pointerup','touch',{target:p.d.body});
+ assert.deepEqual(c.commands().slice(before),['mute','play','mute','play']);
+});
 test('an extra provider’s frame is expected to drive itself only once that provider is granted',async t=>{
  const p=page(t);const controller=await hoverController(p);
  const frame=p.d.createElement('iframe');frame.setAttribute('src','https://www.youtube.com/embed/abc?enablejsapi=1');p.d.body.append(frame);

@@ -421,7 +421,12 @@ html[data-rt-visual-active]:not([data-rt-visual-ready]) main > div.bg-neutral-ba
   transition: opacity 120ms ease;
 }
 
-.rt-vs-media[data-previewing="playing"] .rt-vs-frame {
+.rt-vs-video {
+  opacity: 0;
+}
+
+.rt-vs-media[data-previewing="playing"] .rt-vs-frame,
+.rt-vs-media[data-previewing="playing"] .rt-vs-video {
   opacity: 1;
 }
 

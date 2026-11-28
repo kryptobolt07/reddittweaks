@@ -30,6 +30,24 @@ test('YouTube sound requested before API readiness is applied to the same player
  embed.dispatchEvent(new W.Event('rt-embed-sound',{bubbles:true}));
  assert.equal(unmutes,2,'ready players get the command in the gesture handler');
 });
+test('a ready YouTube player can retry a muted preview during the activation handler',async t=>{
+ const {W}=setup(t),embed=W.document.createElement('shreddit-embed'),lite=W.document.createElement('lite-youtube');
+ embed.setAttribute('providername','YouTube');W.document.body.append(embed);
+ embed.liteYoutubeElement=lite;
+ const calls=[],player={mute(){calls.push('mute');},playVideo(){calls.push('play');},getPlayerState:()=>2};
+ lite.activate=()=>lite.classList.add('lyt-activated');
+ lite.getYTPlayer=()=>Promise.resolve(player);
+ const preview=()=>embed.dispatchEvent(new W.Event('rt-embed-preview',{bubbles:true,cancelable:true}));
+ embed.dataset.rtEmbedPreview='on';
+ preview();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(new URLSearchParams(lite.getAttribute('params')).get('mute'),'1');
+ assert.deepEqual(calls.splice(0),['mute','play']);
+ preview();
+ assert.deepEqual(calls.splice(0),['mute','play']);
+ delete embed.dataset.rtEmbedPreview;embed.dataset.rtEmbedUsed='1';
+ embed.dispatchEvent(new W.Event('rt-embed-use-muted',{bubbles:true}));
+ assert.deepEqual(calls,['mute','play']);
+});
 test('the detail YouTube player starts a saved continuation with sound',async t=>{
  const {W}=setup(t,{url:'https://www.reddit.com/r/example/comments/abc12/title/'});
  const card=W.document.createElement('shreddit-post');card.id='t3_abc12';W.document.body.append(card);

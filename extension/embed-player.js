@@ -13,6 +13,7 @@
   },()=>({authorized:false,holdFeed:false}));
   let discoveryObserver=null;
   let allowed=false,parentOrigin='',block=false,child=null,childOrigin='',childState={},playback='',sound='',announced=false;
+  let waitingForVideo=false;
   let targetVolume=null,loopPolicy='default',hold2xEnabled=false,activeHold2x=null,suppressClickUntil=-Infinity;
   // While the Reddit page previews this player (preview on), a click on the video surface is reported as a tap instead
   // of toggling playback, and a click on the player's own controls as the viewer taking the player.
@@ -120,6 +121,11 @@
   const hello=()=>{
     const video=media();
     if(allowed && (video || child)){
+      if(video && waitingForVideo){
+        waitingForVideo=false;
+        if(sound)apply(sound,video);
+        if(playback==='play' || playback==='pause')apply(playback,video);
+      }
       announced=true;
       discoveryObserver?.disconnect();discoveryObserver=null;
       up('hello',video?{playing:!video.paused && !video.ended,rendered:video.readyState>=2}:childState);
@@ -194,7 +200,9 @@
       else{
         if(method==='mute' || method==='unmute')sound=method;
         else{playback=method;instructed=true;if(method==='pause')eligible=true;}
-        apply(method);
+        const video=media();
+        if(video)apply(method,video);
+        else waitingForVideo=true;
       }
       down(method,method==='policy'?{block}:undefined);
       return;

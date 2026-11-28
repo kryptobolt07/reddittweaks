@@ -861,6 +861,53 @@ function frameSays(W, frame, data) {
   W.dispatchEvent(new W.MessageEvent('message', { data: { rt: 'visual-player', id, paused: false, muted: true, ...data }, origin: 'chrome-extension://abc', source: frame.contentWindow }));
 }
 
+test('a blocked Visual clip retries in the same player during the next page gesture', async t => {
+  for (const streaming of [true, false]) {
+    const counter = { fetches: 0 };
+    const { W, D, controller } = setupUi(t, { phone: true, sendImpl: clipSend(counter) });
+    if (streaming) withFrames(W);
+    await controller.ready;
+    await flush();
+    inView(W, D);
+    const media = D.querySelector('.rt-vs-media[data-video-url]');
+    let duringGesture = false, attempts = 0;
+    W.HTMLMediaElement.prototype.play = function () {
+      assert.equal(this.muted, true);
+      attempts++;
+      return duringGesture ? Promise.resolve() : Promise.reject(new W.DOMException('Autoplay blocked', 'NotAllowedError'));
+    };
+    controller.startPreview(media);
+    await flush();
+    const player = media.querySelector(streaming ? 'iframe' : 'video');
+    assert.ok(player);
+    if (streaming) {
+      player.contentWindow.postMessage = data => {
+        if (data.cmd === 'play') { assert.equal(duringGesture, true); attempts++; }
+      };
+      frameSays(W, player, { type: 'blocked', paused: true });
+    }
+    const before = attempts;
+    const gesture = () => D.body.dispatchEvent(new W.Event('pointerup', { bubbles: true }));
+    W.__rtVisualSearchTest = false;
+    gesture();
+    assert.equal(attempts, before, 'an untrusted event cannot retry');
+    W.__rtVisualSearchTest = true;
+    duringGesture = true;
+    gesture();
+    duringGesture = false;
+    assert.equal(attempts, before + 1, 'retry dispatched during the page gesture');
+    assert.equal(media.querySelector(streaming ? 'iframe' : 'video'), player);
+    if (streaming) frameSays(W, player, { type: 'playing' });
+    await flush();
+    assert.equal(media.dataset.previewing, 'playing');
+    assert.equal(counter.fetches, streaming ? 0 : 1);
+    if (streaming) frameSays(W, player, { type: 'blocked', paused: true });
+    controller.stopVideoPreview();
+    gesture();
+    assert.equal(attempts, before + 1, 'stopped previews have no retry listener');
+  }
+});
+
 test('tile clips stream through the player frame, and the viewer continues from the same moment', async t => {
   const counter = { fetches: 0 };
   const { W, D, controller } = setupUi(t, { hover: true, settings: { visualSearch: true, visualClick: 'viewer' }, sendImpl: clipSend(counter) });

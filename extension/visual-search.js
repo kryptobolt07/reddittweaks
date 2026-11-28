@@ -2474,6 +2474,7 @@
       if (!cur) return;
       this.hoveredPreview = null;
       clearTimeout(cur.timer);
+      cur.cancelActivation?.();
       delete cur.media?.dataset?.previewing;
       if (cur.media) this.videoIO?.unobserve?.(cur.media);
       if (cur.player) this.dropPlayer(cur.player);
@@ -2535,6 +2536,18 @@
       const videoUrl = media.dataset.videoUrl;
       const entry = { media, videoUrl, video: null, player: null, manual, timer: 0 };
       this.hoveredPreview = entry;
+      const playing = () => {
+        if (this.hoveredPreview !== entry) return;
+        entry.cancelActivation?.();
+        media.dataset.previewing = 'playing';
+      };
+      const playBlob = () => {
+        entry.video.play?.().then(playing, error => {
+          if (this.hoveredPreview !== entry) return;
+          if (error?.name === 'NotAllowedError') this.waitForPreviewActivation(entry, playBlob);
+          else this.previewFailed(entry);
+        });
+      };
       const viaBlob = async () => {
         try {
           const objUrl = await this.getVideoBlobUrl(videoUrl);
@@ -2543,14 +2556,12 @@
           video.muted = true;
           video.loop = true;
           video.playsInline = true;
-          video.autoplay = true;
           video.setAttribute('aria-hidden', 'true');
           video.src = objUrl;
           entry.video = video;
           media.append(video);
-          media.dataset.previewing = 'playing';
           this.videoIO?.observe?.(media);
-          video.play?.().catch(() => {});
+          playBlob();
         } catch {
           if (this.hoveredPreview === entry) this.previewFailed(entry);
         }
@@ -2563,20 +2574,9 @@
           onMessage: msg => {
             if (this.hoveredPreview !== entry) return;
             if (msg.type === 'unavailable') { this.dropPlayer(player); entry.player = null; viaBlob(); return; }
-            if (msg.type === 'playing' || msg.type === 'time' && !msg.paused) media.dataset.previewing = 'playing';
-            else if (msg.type === 'error' || msg.type === 'blocked') {
-              this.previewFailed(entry);
-              // Refused autoplay (some phone browsers until the page has had a tap): try again on the next tap.
-              if (msg.type === 'blocked' && !this.activationRetry) {
-                const retry = () => {
-                  window.removeEventListener('pointerup', retry, true);
-                  this.activationRetry = null;
-                  if (!this.dead) setTimeout(() => this.settlePreviews(), 0);
-                };
-                this.activationRetry = retry;
-                window.addEventListener('pointerup', retry, true);
-              }
-            }
+            if (msg.type === 'playing' || msg.type === 'time' && !msg.paused) playing();
+            else if (msg.type === 'blocked') this.waitForPreviewActivation(entry, () => this.commandPlayer(player, 'play'));
+            else if (msg.type === 'error') this.previewFailed(entry);
           }
         });
         if (!player) { viaBlob(); return; }
@@ -2586,6 +2586,24 @@
       };
       if (delay > 0) entry.timer = setTimeout(run, delay);
       else run();
+    }
+
+    waitForPreviewActivation(entry, play) {
+      if (entry.cancelActivation) return;
+      delete entry.media.dataset.previewing;
+      const cancel = () => {
+        for (const type of ['pointerup', 'keydown']) window.removeEventListener(type, retry, true);
+        entry.cancelActivation = null;
+      };
+      const retry = event => {
+        if (!event.isTrusted && !globalThis.__rtVisualSearchTest) return;
+        if (event.button > 0 || event.isPrimary === false || event.repeat ||
+            event.key === 'Escape' || event.ctrlKey || event.metaKey || event.altKey) return;
+        cancel();
+        if (!this.dead && this.hoveredPreview === entry && entry.media.isConnected) play();
+      };
+      entry.cancelActivation = cancel;
+      for (const type of ['pointerup', 'keydown']) window.addEventListener(type, retry, true);
     }
 
     // A clip that could not play: say so on its badge for a moment, then leave the tile as it was.

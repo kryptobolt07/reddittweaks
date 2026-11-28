@@ -419,14 +419,19 @@
   document.addEventListener('rt-embed-preview',event=>{
     const embed=event.target;if(!liteOf(embed))return;
     event.preventDefault();
-    youTubePlayer(embed,{mute:'1'}).then(player=>{if(embed.dataset.rtEmbedPreview!=='on')return;player?.mute();player?.playVideo();},()=>{});
+    const play=player=>{if(embed.dataset.rtEmbedPreview==='on'){player?.mute();player?.playVideo();}};
+    const player=ytPlayers.get(embed);
+    if(player)play(player);
+    else youTubePlayer(embed,{mute:'1',autoplay:'1'}).then(play,()=>{});
   });
   document.addEventListener('rt-embed-use-muted',event=>{
     const embed=event.target;
-    if(ytPlayers.has(embed))return;
-    pendingYouTube.get(embed)?.then(player=>{
-      if(embed.isConnected && embed.dataset.rtEmbedUsed==='1'){player?.mute();player?.playVideo();}
-    }).catch(()=>{});
+    const play=player=>{
+      if(embed.isConnected && embed.dataset.rtEmbedUsed==='1' && player?.getPlayerState?.()!==1){player?.mute();player?.playVideo();}
+    };
+    const player=ytPlayers.get(embed);
+    if(player)play(player);
+    else pendingYouTube.get(embed)?.then(play).catch(()=>{});
   });
   // End of a preview: pause where it is and restore sound for the user's own play button.
   document.addEventListener('rt-embed-stop',event=>youTubeCall(event.target,player=>{player.pauseVideo();player.unMute();}));
@@ -831,9 +836,13 @@
       player.getAttribute('player-type')==='in_feed_player' && player.closest('shreddit-post')?.id===player.getAttribute('post-id') ||
       player.getAttribute('player-type')==='search_results' && Boolean(player.closest('[data-id="search-media-post-unit"]'));
     if(!allowed)return;
-    player.mediaSyncController?.muteForAutoplayRetry?.();
     holdMuted(player);
-    if(player.shadowRoot?.querySelector('video')?.readyState===0)player.load?.('metadata')?.catch?.(()=>{});
+    player.mediaSyncController?.muteForAutoplayRetry?.();
+    const video=player.shadowRoot?.querySelector('video');
+    if(video){
+      video.muted=true;
+      if(video.readyState===0)player.load?.('metadata')?.catch?.(()=>{});
+    }
   });
   // A lazy native player needs Reddit's own media loader before its <video> has metadata.
   document.addEventListener('rt-prepare-detail-video',event=>{

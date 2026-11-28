@@ -5,7 +5,7 @@ const {JSDOM,ResourceLoader}=require('jsdom');
 const read=file=>fs.readFileSync('extension/'+file,'utf8');
 const reddit='https://www.reddit.com';
 
-async function player(t,{authorized=true}={}){
+async function player(t,{authorized=true,deferVideo=false}={}){
  const html='<a href="https://www.redgifs.com/watch/demo"><video></video></a><button>Volume</button>';
  const resources=new ResourceLoader();resources.fetch=async()=>Buffer.from(html);
  const dom=new JSDOM('<iframe src="https://www.redgifs.com/ifr/demo"></iframe>',{url:reddit,runScripts:'outside-only',resources});
@@ -13,6 +13,7 @@ async function player(t,{authorized=true}={}){
  const parent=dom.window,frame=parent.document.querySelector('iframe');
  await new Promise(resolve=>frame.addEventListener('load',resolve,{once:true}));
  const W=frame.contentWindow,video=W.document.querySelector('video'),messages=[];
+ if(deferVideo)video.remove();
  parent.postMessage=(data,origin)=>messages.push({data,origin});
  W.chrome={runtime:{sendMessage:async()=>authorized}};
  W.eval(read('embed-player-hosts.js'));
@@ -71,6 +72,16 @@ test('a player outside Reddit is let go at once',async t=>{
  const {W,video}=await player(t,{authorized:false});
  video.dispatchEvent(new W.Event('play'));
  assert.equal(video.paused,false);
+});
+test('a late provider video applies the preview’s muted play before announcing itself',async t=>{
+ const {W,video,send,messages}=await player(t,{deferVideo:true});
+ video.pause();video.muted=false;
+ await send('mute');await send('play');
+ assert.equal(video.paused,true);
+ W.document.querySelector('a').append(video);
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(video.muted,true);assert.equal(video.paused,false);
+ assert.ok(messages.some(({data})=>data.rtMedia==='hello' && data.playing));
 });
 
 test('a provider sound button that pauses its current video keeps it playing at the same time',async t=>{
