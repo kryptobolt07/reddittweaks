@@ -1,3 +1,12 @@
+# 0.67.4 preview
+
+- **Desktop previews.** Media tiles retry a stalled Reddit playback command on the same video. Visual previews follow an explicit hover setting with reduced motion enabled, and real mouse input can preview on touch-capable desktops.
+- **Fullscreen playback.** Both viewers paint the shared Play overlay before starting video and hide it when playback begins. Media clips try other Reddit sources and can fall back to the extension player. The framed player offers a clickable Play control when the browser refuses autoplay.
+- **Media viewer controls.** The expand icon sits above its own media within the tile. The viewer requests Reddit’s native continuation near the end and keeps the current result selected as more arrive.
+- **Patch increment.** Playback, layering and pagination fixes for the existing media viewers.
+- **Verification.** Signed-in Chrome Dev checked desktop hover and fullscreen playback in both tabs. Media results grew from 14 to 42 with desktop arrows and from 14 to 35 with emulated phone swipes. The grid stayed in place behind the viewer. Firefox 161 fixtures covered hover, playback and pagination, including simulated source failure and autoplay refusal. Live Firefox and physical touch devices were outside this check.
+- **Release checks.** All 2,490 tests passed. Both archives matched their unpacked builds, and Firefox lint reported zero warnings or errors.
+
 # 0.67.3 preview
 
 - **Video overlays.** Paused feed videos, Media tiles, and the Media fullscreen viewer use the same centered Play button. Visual Search thumbnails and embed placeholders use the matching mark. Images and GIFs retain their own appearance.
