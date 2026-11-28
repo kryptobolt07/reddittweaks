@@ -1,3 +1,12 @@
+# 0.67.2 preview
+
+- **Profile and feed filters.** Changing or clearing a filter keeps Sort & filter in place when possible and returns to the controls if you scrolled past them. Switching from Deleted to All activity no longer follows a card down as the full list is restored.
+- **Firefox Visual Search.** The post lens sends requests through Firefox’s extension messaging API. If the page cannot read the post’s still, the extension reads it from an approved image host without credentials and resizes and re-encodes it before upload. If Firefox prompts for image access, allow it from the Visual search toggle.
+- **First-page media previews.** Native videos and GIFs start muted. Embedded players keep their play command through loading, and blocked previews can retry on a trusted tap or key press. Visual Search keeps the poster visible until the preview starts.
+- **Patch increment.** This release fixes scroll positioning, Firefox Visual Search, and preview reliability in existing features.
+- **Browser verification.** Signed-in Chrome verified the profile scroll fix at desktop and phone widths and played muted native video and a YouTube embed before any tap in phone mode. Firefox 161 fixtures verified post-image search at desktop and phone widths, plus native preview playback before interaction when allowed and after a page tap when autoplay was blocked. Physical Firefox Android and live uploads to infini.wtf were outside this check. Firefox’s autoplay settings can block even muted media, and embedded players may require their own Play control. [Mozilla’s Firefox for Android autoplay settings](https://support.mozilla.org/en-US/kb/playing-videos-firefox-android)
+- **Release checks.** All 2,484 tests passed. Both packages matched the unpacked builds byte for byte, and Firefox lint reported zero warnings or errors.
+
 # 0.67.1 preview
 
 - **Chat search memory & speed:** cache the chat directory in memory inside the background worker, skip full-account sender merging on plain and `from:me`/`from:them` searches, bound top-K selection for common terms instead of sorting every match, skip unnecessary full-index re-sorts on non-date queries, avoid re-scanning all rooms on unchanged steady-state Matrix sync heartbeats, eliminate giant joined row-stamp allocations in `setItems()`, and defer hidden chat-preview reloads while searching Messages.
