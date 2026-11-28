@@ -613,7 +613,7 @@ test('Visual Search defaults off, asks for infini.wtf access when turned on, and
   const permsApi={
     permissions:{
       async contains(){return true;},
-      async request(arg){permRequests++;asked=arg;return grant;},
+      async request(arg){permRequests++;asked=arg;if(grant instanceof Error)throw grant;return grant;},
       async remove(){}
     },
     scripting:{async getRegisteredContentScripts(){return [];},async registerContentScripts(){},async unregisterContentScripts(){}}
@@ -634,7 +634,7 @@ test('Visual Search defaults off, asks for infini.wtf access when turned on, and
 
   toggle.checked=true;toggle.dispatchEvent(new p.w.Event('change',{bubbles:true}));await settle();
   assert.equal(permRequests,1,'turning it on asks for access (the browser prompts only when it is missing)');
-  assert.deepEqual([...asked.origins],['https://infini.wtf/*','https://video.infini.wtf/*','https://i.redd.it/*','https://preview.redd.it/*','https://external-preview.redd.it/*']);
+  assert.deepEqual([...asked.origins],['https://infini.wtf/*','https://video.infini.wtf/*','https://i.redd.it/*','https://preview.redd.it/*','https://cf.preview.redd.it/*','https://external-preview.redd.it/*','https://i.ytimg.com/*']);
   assert.equal(toggle.checked,true);
   assert.equal(p.state['rt-settings-v1'].visualSearch,true);
   assert.equal(postMenuRow.hidden,false);
@@ -651,6 +651,11 @@ test('Visual Search defaults off, asks for infini.wtf access when turned on, and
   assert.equal(toggle.checked,false,'refused access leaves it off');
   assert.equal(p.state['rt-settings-v1'].visualSearch,false);
   assert.match(doc.getElementById('settings-status').textContent,/infini\.wtf/);
+
+  grant=new Error('Permissions request rejected');
+  toggle.checked=true;toggle.dispatchEvent(new p.w.Event('change',{bubbles:true}));await settle();
+  assert.equal(toggle.checked,false,'a rejected request also leaves it off');
+  assert.equal(p.state['rt-settings-v1'].visualSearch,false);
 });
 
 test('settings search filters cards, keywords, and drawer items, reveals matched dependents, and restores drawer state on clear',async t=>{

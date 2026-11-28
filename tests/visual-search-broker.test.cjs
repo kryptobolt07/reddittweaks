@@ -286,6 +286,50 @@ test('resolve-post uses lowercase subreddit HEAD lookup, falls back to GET on 40
   assert.equal(b.calls.some(([u, i]) => i?.method === 'POST'), false);
 });
 
+test('post stills are returned to the canvas pipeline with bounded, anonymous reads', async () => {
+  const b = setup({
+    origins: ['https://cf.preview.redd.it/*', 'https://i.ytimg.com/*'],
+    fetcher: async url => mkResponse(Buffer.from('still'), {
+      url,
+      headers: {
+        'content-type': url.endsWith('bad.jpg') ? 'text/html' : 'image/jpeg',
+        ...(url.endsWith('big.jpg') ? { 'content-length': '10000001' } : {})
+      }
+    })
+  });
+  const redditStill = 'https://cf.preview.redd.it/still.jpg?width=640&s=x';
+  const youTubeStill = 'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg';
+  for (const url of [redditStill, youTubeStill]) {
+    const res = await b.send({ action: 'fetch-still', url });
+    assert.equal(res.ok, true);
+    assert.equal(res.mimeType, 'image/jpeg');
+    assert.equal(Buffer.from(res.base64, 'base64').toString(), 'still');
+  }
+  for (const [url, init] of b.calls) {
+    assert.ok([redditStill, youTubeStill].includes(url));
+    assert.equal(init.credentials, 'omit');
+    assert.equal(init.referrerPolicy, 'no-referrer');
+    assert.equal(init.redirect, 'error');
+  }
+  for (const url of ['https://evil.test/photo.jpg', 'https://i.ytimg.com/elsewhere.jpg', 'https://user@cf.preview.redd.it/still.jpg']) {
+    assert.equal((await b.send({ action: 'fetch-still', url })).code, 'invalid-request');
+  }
+  assert.equal((await b.send({ action: 'fetch-still', url: 'https://preview.redd.it/still.jpg' })).code, 'permission-required');
+  assert.equal(b.calls.length, 2);
+  assert.equal((await b.send({ action: 'fetch-still', url: 'https://cf.preview.redd.it/bad.jpg' })).code, 'reddit-image-error');
+  assert.equal((await b.send({ action: 'fetch-still', url: 'https://cf.preview.redd.it/big.jpg' })).code, 'invalid-request');
+  b.grantOrigin('https://infini.wtf/*');
+  assert.equal((await b.send({ action: 'upload-image', redditImageUrl: redditStill })).code, 'invalid-request', 'the broker never uploads a raw still');
+  assert.equal(b.calls.length, 4);
+});
+
+test('post lookup and queries only require access to the search service', async () => {
+  const b = setup({ origins: ['https://infini.wtf/*'] });
+  assert.equal((await b.send({ action: 'query', kind: 'popular' })).ok, true);
+  assert.equal((await b.send({ action: 'fetch-video', url: 'https://video.infini.wtf/v1/original.mp4' })).code, 'permission-required');
+  assert.equal(b.calls.length, 1);
+});
+
 test('upload-image checks image-queries hash first and skips POST when already indexed', async () => {
   const bytes = Buffer.from('fake-webp-bytes');
   const b64 = bytes.toString('base64');

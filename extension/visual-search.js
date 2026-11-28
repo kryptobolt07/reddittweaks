@@ -131,35 +131,23 @@
 
   // Longest wait per request before the page gives up on the worker (each is above the broker's own fetch timeout,
   // so the broker's answer normally arrives first; this catches a worker that never answers).
-  const SEND_TIMEOUT_MS = { query: 25_000, related: 10_000, autocomplete: 10_000, 'resolve-post': 25_000, 'check-image-query': 25_000, 'upload-image': 45_000, 'fetch-video': 40_000, download: 20_000 };
+  const SEND_TIMEOUT_MS = { query: 25_000, related: 10_000, autocomplete: 10_000, 'resolve-post': 25_000, 'check-image-query': 25_000, 'fetch-still': 25_000, 'upload-image': 45_000, 'fetch-video': 40_000, download: 20_000 };
 
-  function defaultSend(message) {
-    return new Promise((resolve, reject) => {
-      const runtime = (globalThis.browser || globalThis.chrome)?.runtime;
-      if (!runtime?.sendMessage) return reject(Error('Extension messaging is unavailable.'));
-      let settled = false;
-      const limit = SEND_TIMEOUT_MS[message?.action];
-      const timer = limit ? setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        resolve({ ok: false, error: 'infini.wtf took too long to answer.', code: 'timeout' });
-      }, limit) : 0;
-      const done = res => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        void runtime.lastError;
-        resolve(res || { ok: false, error: 'Visual search did not answer.', code: 'network-error' });
-      };
-      try {
-        const out = runtime.sendMessage({ scope: 'rt-visual-search', ...message }, done);
-        if (out && typeof out.then === 'function') out.then(done, err => {
-          if (!settled) { settled = true; reject(err); }
-        });
-      } catch (err) {
-        reject(err);
-      }
-    });
+  async function defaultSend(message) {
+    const runtime = (globalThis.browser || globalThis.chrome)?.runtime;
+    let timer;
+    try {
+      const response = runtime.sendMessage({ scope: 'rt-visual-search', ...message });
+      const result = await Promise.race([response, new Promise(resolve => {
+        timer = setTimeout(() => resolve({
+          ok: false, error: 'Visual search took too long to answer.', code: 'timeout'
+        }), SEND_TIMEOUT_MS[message.action] || 25_000);
+      })]);
+      if (result) return result;
+    } catch {} finally {
+      clearTimeout(timer);
+    }
+    return { ok: false, error: 'Visual search did not answer.', code: 'network-error' };
   }
 
   async function defaultReadSettings() {
@@ -167,15 +155,6 @@
     if (!runtime?.sendMessage) return null;
     const response = await runtime.sendMessage({ scope: 'rt-posts', action: 'get-settings' });
     return response?.ok ? response.settings : null;
-  }
-
-  function bytesToBase64(bytes) {
-    const chunk = 0x8000;
-    let out = '';
-    for (let i = 0; i < bytes.length; i += chunk) {
-      out += String.fromCharCode(...bytes.subarray(i, i + chunk));
-    }
-    return btoa(out);
   }
 
   function base64ToBlob(base64, mimeType) {
@@ -213,19 +192,22 @@
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext('2d');
-      ctx?.drawImage(img, 0, 0, width, height);
+      if (!ctx) throw Error('Could not prepare that image.');
+      ctx.drawImage(img, 0, 0, width, height);
 
-      let outBlob = await new Promise(resolve => canvas.toBlob?.(resolve, 'image/webp', 0.88));
-      let mimeType = 'image/webp';
-      if (!outBlob) {
-        outBlob = await new Promise(resolve => canvas.toBlob?.(resolve, 'image/jpeg', 0.88));
-        mimeType = 'image/jpeg';
-      }
-      if (!outBlob) {
-        outBlob = blob;
-        mimeType = blob.type || 'image/jpeg';
-      }
-      const bytes = new Uint8Array(await outBlob.arrayBuffer());
+      const encode = type => new Promise(resolve => canvas.toBlob(resolve, type, 0.88));
+      const outBlob = await encode('image/webp') || await encode('image/jpeg');
+      if (!outBlob) throw Error('Could not prepare that image.');
+      const mimeType = outBlob.type;
+      // Read encoded bytes as a string. Firefox's canvas Blob can return a page-owned ArrayBuffer,
+      // whose typed-array views may throw on operations such as subarray in a content script.
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(Error('Could not read the prepared image.'));
+        reader.readAsDataURL(outBlob);
+      });
+      const dataBase64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
       previewUrl = URL.createObjectURL(outBlob);
       let thumbDataUrl = '';
       try {
@@ -237,21 +219,11 @@
         const url = tc.toDataURL('image/jpeg', 0.72);
         if (url.length < 30_000) thumbDataUrl = url;
       } catch {}
-      return { dataBase64: bytesToBase64(bytes), mimeType, previewUrl, thumbDataUrl, width, height };
+      return { dataBase64, mimeType, previewUrl, thumbDataUrl, width, height };
     } catch (error) {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       throw error;
     }
-  }
-
-  // Reddit's image hosts answer CORS only for https://www.reddit.com. Chrome's content-script fetch already goes out
-  // as the page; Firefox's goes out as the extension (and is refused) unless it uses the page's own fetch.
-  function pageFetch(url, init) {
-    try {
-      const page = typeof content !== 'undefined' ? content : null; // eslint-disable-line no-undef
-      if (page && page !== globalThis && typeof page.fetch === 'function') return page.fetch(url, init);
-    } catch {}
-    return fetch(url, init);
   }
 
   const NATIVE_MEDIA_TILE = '[data-id="search-media-post-unit"]';
@@ -289,16 +261,21 @@
     return [...(feed?.querySelectorAll?.(NATIVE_MEDIA_TILE) || [])].map(nativeMediaItem).filter(Boolean);
   }
 
-  // A post's still from its own Reddit data (one post at a time; Reddit refuses batched lookups): its preview image,
-  // which Reddit keeps on its own image servers for embeds too, then the provider's still. The post's JSON first, then
-  // its feed partial when the JSON route is refused.
-  const redditImage = u => { try { const url = new URL(String(u || '').replace(/&amp;/gi, '&')); return url.protocol === 'https:' && /(^|\.)redd\.it$/i.test(url.hostname) ? url.href : ''; } catch { return ''; } };
+  const REDDIT_STILL_HOSTS = new Set(['i.redd.it', 'preview.redd.it', 'cf.preview.redd.it', 'external-preview.redd.it']);
+  function redditImage(value) {
+    try {
+      const url = new URL(String(value || '').replace(/&amp;/gi, '&'));
+      return url.protocol === 'https:' && !url.username && !url.password && !url.port && REDDIT_STILL_HOSTS.has(url.hostname) ? url.href : '';
+    } catch { return ''; }
+  }
+
+  // Read Reddit's own copy of an embed's still from one post's JSON or feed partial.
   async function postStill(postId) {
     const id = String(postId || '').replace(/^t3_/i, '').toLowerCase();
     if (!/^[a-z0-9]{1,12}$/.test(id)) return '';
     const pick = list => list.map(redditImage).find(Boolean) || '';
     try {
-      const res = await pageFetch(new URL('/comments/' + id + '.json?limit=1&depth=1&raw_json=1', location.origin).href, { credentials: 'include', headers: { Accept: 'application/json' } });
+      const res = await fetch(new URL('/comments/' + id + '.json?limit=1&depth=1&raw_json=1', location.origin).href, { credentials: 'include', headers: { Accept: 'application/json' } });
       if (res.ok) {
         const d = (await res.json())?.[0]?.data?.children?.[0]?.data;
         const image = d?.preview?.images?.[0];
@@ -307,7 +284,7 @@
       }
     } catch {}
     try {
-      const res = await pageFetch(new URL('/svc/shreddit/partial-feed-post/t3_' + id, location.origin).href, { credentials: 'include', headers: { Accept: 'text/vnd.reddit.partial+html, text/html;q=0.9' } });
+      const res = await fetch(new URL('/svc/shreddit/partial-feed-post/t3_' + id, location.origin).href, { credentials: 'include', headers: { Accept: 'text/vnd.reddit.partial+html, text/html;q=0.9' } });
       if (res.ok) {
         const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
         const urls = [];
@@ -321,7 +298,7 @@
 
   // Reddit renders an embed's player lazily inside its own shadow root, but every shreddit-embed carries the
   // provider's player address in its html attribute from the start. YouTube's still comes from the video id
-  // (i.ytimg.com answers CORS for any origin); embedly widgets name their still in an image parameter.
+  // and embedly widgets name their still in an image parameter.
   function embedAddressStills(html) {
     const src = /\bsrc=["']([^"']+)["']/i.exec(String(html || ''))?.[1]?.replace(/&amp;/gi, '&') || '';
     let url;
@@ -341,30 +318,24 @@
     const title = String(post?.getAttribute?.('post-title') || post?.querySelector?.('[slot="title"]')?.textContent || '').trim().slice(0, 300);
 
     let fallbackImageUrl = '';
-    const isAllowedImg = u => {
-      try {
-        const parsed = new URL(String(u || '').replace(/&amp;/gi, '&'));
-        return parsed.protocol === 'https:' && ['i.redd.it', 'preview.redd.it', 'cf.preview.redd.it', 'external-preview.redd.it'].includes(parsed.hostname.toLowerCase());
-      } catch { return false; }
-    };
-
     const type = String(post?.getAttribute?.('post-type') || '').toLowerCase();
     if (DownloadModel?.mediaFor && (type === 'image' || type === 'gallery')) {
       const info = DownloadModel.mediaFor(post);
       const imgUrl = info?.items?.[0]?.url;
-      if (isAllowedImg(imgUrl)) fallbackImageUrl = imgUrl;
+      fallbackImageUrl = redditImage(imgUrl);
     }
     if (!fallbackImageUrl) {
       const player = post?.querySelector?.('shreddit-player, shreddit-player-2');
       const poster = player?.getAttribute?.('poster') || player?.shadowRoot?.querySelector?.('video')?.getAttribute?.('poster') || '';
-      if (isAllowedImg(poster)) fallbackImageUrl = poster;
+      fallbackImageUrl = redditImage(poster);
     }
     if (!fallbackImageUrl) {
       const container = post?.querySelector?.('[slot="post-media-container"]') || post;
       for (const img of container?.querySelectorAll?.('img') || []) {
         if (img.classList?.contains('rt-media-backdrop')) continue;
         const candidate = img.currentSrc || img.getAttribute('src') || img.getAttribute('data-src') || '';
-        if (isAllowedImg(candidate)) { fallbackImageUrl = candidate; break; }
+        fallbackImageUrl = redditImage(candidate);
+        if (fallbackImageUrl) break;
       }
     }
     // Embedded media (YouTube, Vimeo, Streamable and others): infini.wtf only indexes Reddit-hosted media, so these are
@@ -382,7 +353,7 @@
         ...[...(embed.shadowRoot?.querySelectorAll?.('img[data-rt-pre-still],img[data-rt-parked-still]') || [])].map(img => img.currentSrc || img.getAttribute('src') || ''),
         ...embedAddressStills(embed.getAttribute?.('html') || '')
       ].filter(Boolean);
-      fallbackImageUrl = candidates.find(isAllowedImg) || candidates.map(httpsImage).find(Boolean) || '';
+      fallbackImageUrl = candidates.map(redditImage).find(Boolean) || candidates.map(httpsImage).find(Boolean) || '';
     }
     return { postId, subreddit, title, fallbackImageUrl, embed: Boolean(embed) };
   }
@@ -1306,9 +1277,8 @@
           return;
         }
 
-        // Not indexed on infini.wtf yet. When the page gave no picture, or only a provider's copy (which a Reddit page
-        // can't read: measured with Streamable's CDN), Reddit's own copy from the post's data is used. YouTube's
-        // stills are readable and are kept.
+        // When the page has no still or only a provider's copy, prefer Reddit's copy from the post data.
+        // The source image and YouTube thumbnails already have supported read paths.
         const pageStill = this.state.postSeed?.fallbackImageUrl || '';
         if (!pageStill || !(redditImage(pageStill) || /^https:\/\/i\.ytimg\.com\//.test(pageStill))) {
           const still = await postStill(postId);
@@ -1355,58 +1325,55 @@
       }
 
       try {
-        let payload = {};
+        let blob = fileOrUrl;
+        if (onVisual && this.state) {
+          this.state.status = 'hashing';
+          this.state.uploadStatusText = 'Preparing your image…';
+          this.renderHost();
+        }
         if (typeof fileOrUrl === 'string') {
-          if (onVisual && this.state) {
-            this.state.status = 'uploading';
-            this.state.uploadStatusText = 'Uploading your image…';
-            this.renderHost();
-          }
           try {
-            const resp = await pageFetch(fileOrUrl, { credentials: 'omit' });
-            if (resp.ok) {
-              const blob = await resp.blob();
-              const prep = await this.prepareImage(blob);
-              this.trackPreviewUrl(prep.previewUrl);
-              previewUrl = prep.previewUrl;
-              thumbDataUrl = prep.thumbDataUrl || '';
-              if (onVisual && this.state) this.state.uploadPreviewUrl = previewUrl;
-              payload = { dataBase64: prep.dataBase64, mimeType: prep.mimeType };
-            } else {
-              payload = { redditImageUrl: fileOrUrl };
+            const url = new URL(fileOrUrl.replace(/&amp;/gi, '&'));
+            if (url.protocol === 'https:' && !url.username && !url.password && !url.port) {
+              const response = await fetch(url.href, {
+                credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error',
+                signal: AbortSignal.timeout(10_000)
+              });
+              if (response.ok) blob = await response.blob();
             }
-          } catch {
-            payload = { redditImageUrl: fileOrUrl };
+          } catch {}
+          if (this.dead || myGen !== this.gen) return;
+          if (typeof blob === 'string') {
+            const still = await this.send({ action: 'fetch-still', url: fileOrUrl });
+            if (this.dead || myGen !== this.gen) return;
+            if (!still?.ok) throw Object.assign(
+              Error(still?.error || 'Could not read this post’s picture.'), { code: still?.code }
+            );
+            blob = base64ToBlob(still.base64, still.mimeType);
           }
-        } else {
-          if (onVisual && this.state) {
-            this.state.status = 'hashing';
-            this.state.uploadStatusText = 'Preparing your image…';
-            this.renderHost();
-          }
-          const prep = await this.prepareImage(fileOrUrl);
-          if (this.dead || myGen !== this.gen) {
-            URL.revokeObjectURL(prep.previewUrl);
-            return;
-          }
-          this.trackPreviewUrl(prep.previewUrl);
-          previewUrl = prep.previewUrl;
-          thumbDataUrl = prep.thumbDataUrl || '';
-          if (onVisual && this.state) {
-            this.state.uploadPreviewUrl = previewUrl;
-            this.state.status = 'uploading';
-            this.state.uploadStatusText = 'Uploading your image…';
-            this.renderHost();
-          }
-          payload = { dataBase64: prep.dataBase64, mimeType: prep.mimeType };
+        }
+        const prep = await this.prepareImage(blob);
+        if (this.dead || myGen !== this.gen) {
+          URL.revokeObjectURL(prep.previewUrl);
+          return;
+        }
+        this.trackPreviewUrl(prep.previewUrl);
+        previewUrl = prep.previewUrl;
+        thumbDataUrl = prep.thumbDataUrl || '';
+        if (onVisual && this.state) {
+          this.state.uploadPreviewUrl = previewUrl;
+          this.state.status = 'uploading';
+          this.state.uploadStatusText = 'Uploading your image…';
+          this.renderHost();
         }
 
-        const up = await this.send({ action: 'upload-image', ...payload });
+        const up = await this.send({ action: 'upload-image', dataBase64: prep.dataBase64, mimeType: prep.mimeType });
         if (this.dead || myGen !== this.gen) return;
         if (!up?.ok) {
           if (onVisual && this.state) {
             this.state.status = up?.code === 'permission-required' ? 'permission-required' : 'error';
             this.state.error = up?.error || 'Could not upload that image.';
+            this.state.code = up?.code || 'visual-error';
             this.renderHost();
           } else {
             this.showPopoverError(up?.error || 'Could not upload that image.');
@@ -1443,8 +1410,9 @@
       } catch (err) {
         if (this.dead || myGen !== this.gen) return;
         if (onVisual && this.state) {
-          this.state.status = 'error';
+          this.state.status = err?.code === 'permission-required' ? 'permission-required' : 'error';
           this.state.error = err?.message || 'Unable to process image.';
+          this.state.code = err?.code || 'visual-error';
           this.renderHost();
         } else {
           this.showPopoverError(err?.message || 'Unable to process image.');
@@ -2167,7 +2135,7 @@
       const head = make('div', 'rt-community-state-head');
       const iconBox = make('span', 'rt-community-state-icon');
       iconBox.append(icon('camera', 20));
-      const title = st.status === 'permission-required' ? 'Visual search needs infini.wtf access'
+      const title = st.status === 'permission-required' ? 'Visual search needs site access'
         : st.code === 'timeout' ? 'infini.wtf is taking too long'
         : st.code === 'rate-limited' ? 'infini.wtf asked us to slow down'
         : 'Visual search unavailable';

@@ -178,6 +178,7 @@
   "optional_host_permissions": [
     "https://i.redd.it/*",
     "https://preview.redd.it/*",
+    "https://cf.preview.redd.it/*",
     "https://external-preview.redd.it/*",
     "https://www.redgifs.com/*",
     "https://player.vimeo.com/*",
@@ -187,6 +188,7 @@
     "https://player.twitch.tv/*",
     "https://cdn.embedly.com/*",
     "https://www.youtube.com/*",
+    "https://i.ytimg.com/*",
     "https://www.youtube-nocookie.com/*",
     "https://www.dailymotion.com/*",
     "https://geo.dailymotion.com/*",

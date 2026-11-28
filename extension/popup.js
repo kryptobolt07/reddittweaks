@@ -283,23 +283,20 @@ async function loadSettings(){
   syncDependencies();syncSummary();settled();
 }
 
-// Visual search talks to infini.wtf. Site access can be withheld (Chrome site access, Firefox optional host
-// permissions), so turning it on asks for it; the prompt only appears when access is missing.
-// infini.wtf, and Reddit's image hosts so a post's image can be read for "search with this image" (they answer CORS
-// only for www.reddit.com, so the extension needs host access to read them from its background).
-const VISUAL_ORIGINS=['https://infini.wtf/*','https://video.infini.wtf/*','https://i.redd.it/*','https://preview.redd.it/*','https://external-preview.redd.it/*'];
+// Ask from the toggle's user gesture for service access and for stills the background may need to read.
+const VISUAL_ORIGINS=['https://infini.wtf/*','https://video.infini.wtf/*','https://i.redd.it/*','https://preview.redd.it/*','https://cf.preview.redd.it/*','https://external-preview.redd.it/*','https://i.ytimg.com/*'];
 function saveSetting(control){
   const key=control.dataset.setting,next=control.checked;
   const perms=(globalThis.browser || globalThis.chrome)?.permissions;
   if(key==='visualSearch' && next && perms?.request){
     let ask;
     // Called inside the click: browsers show the prompt only for a user gesture.
-    try{ask=perms.request({origins:VISUAL_ORIGINS});}catch{ask=Promise.resolve(true);}
-    return Promise.resolve(ask).then(granted=>{
-      if(granted!==false)return writeSetting(control,key,next);
+    try{ask=perms.request({origins:VISUAL_ORIGINS});}catch{ask=false;}
+    return Promise.resolve(ask).catch(()=>false).then(granted=>{
+      if(granted)return writeSetting(control,key,next);
       control.checked=false;syncDependencies();syncSummary();settled();
-      setStatus('Visual search needs access to infini.wtf. Turn it on again and choose Allow.',{error:true});
-    },()=>writeSetting(control,key,next));
+      setStatus('Visual search needs access to infini.wtf and image hosts. Turn it on again and choose Allow.',{error:true});
+    });
   }
   return writeSetting(control,key,next);
 }

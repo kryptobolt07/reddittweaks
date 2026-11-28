@@ -70,6 +70,7 @@ function setupUi(t, {
   hover = false,
   fastTimers = false,
   sendImpl,
+  runtime,
   observe = false,
   boot = false
 } = {}) {
@@ -142,12 +143,13 @@ function setupUi(t, {
     W.eval(read(file));
   }
   W.__rtVisualSearchTest = true;
+  if (runtime) W.browser = { runtime };
   W.eval(read('visual-search.js'));
 
   const controller = new W.RTVisualSearch.VisualSearchController({
     observe,
     readSettings: async () => (typeof settings === 'function' ? settings() : settings),
-    send: async msg => {
+    send: runtime ? undefined : async msg => {
       sent.push(msg);
       if (sendImpl) return sendImpl(msg);
       if (msg.action === 'query') {
@@ -167,6 +169,61 @@ function setupUi(t, {
 
   return { W, D, controller, sent, tg, searchHeader };
 }
+
+test('Firefox Promise-only runtime receives a single message argument for post lookup', async t => {
+  const messages = [];
+  const { D, controller } = setupUi(t, {
+    url: 'https://www.reddit.com/search/?type=media&rt_visual=1&rt_vpost=pics/abc123',
+    runtime: {
+      async sendMessage(...args) {
+        if (args.length !== 1) throw new TypeError('Expected a message and optional options object');
+        const [message] = args;
+        messages.push(message);
+        if (message.action === 'resolve-post') return { ok: true, indexed: true, viewId: SAMPLE_ITEMS[0].viewId };
+        if (message.action === 'query') return { ok: true, items: SAMPLE_ITEMS };
+        return { ok: true, items: [] };
+      }
+    }
+  });
+  await controller.ready;
+  await flush();
+  assert.equal(messages[0].scope, 'rt-visual-search');
+  assert.equal(messages[0].action, 'resolve-post');
+  assert.ok(messages.some(message => message.action === 'query' && message.target === SAMPLE_ITEMS[0].viewId));
+  assert.match(D.querySelector('[data-rt-ui="visual-search"]').textContent, /Gelato Cone/);
+});
+
+test('canvas upload serializes the prepared Firefox Blob through FileReader', async t => {
+  const { W, controller, sent } = setupUi(t, {
+    sendImpl: async msg => msg.action === 'upload-image' ? { ok: false, error: 'stop here' } : { ok: true, items: [] }
+  });
+  await controller.ready;
+  await flush();
+
+  const file = new W.Blob(['input'], { type: 'image/png' });
+  const prepared = new W.Blob(['encoded'], { type: 'image/webp' });
+  prepared.arrayBuffer = () => { throw Error('Permission denied to access property "constructor"'); };
+  W.URL.createObjectURL = () => 'blob:fixture';
+  W.URL.revokeObjectURL = () => {};
+  W.Image = class {
+    naturalWidth = 1600;
+    naturalHeight = 800;
+    set src(url) { this.onload(); }
+  };
+  W.HTMLCanvasElement.prototype.getContext = () => ({ drawImage() {} });
+  W.HTMLCanvasElement.prototype.toDataURL = () => 'data:image/jpeg;base64,AA==';
+  W.HTMLCanvasElement.prototype.toBlob = function (resolve, type) {
+    assert.equal(this.width, 1280);
+    assert.equal(this.height, 640);
+    assert.equal(type, 'image/webp');
+    resolve(prepared);
+  };
+
+  await controller.uploadAndSearch(file);
+  const upload = sent.find(msg => msg.action === 'upload-image');
+  assert.equal(upload?.mimeType, 'image/webp');
+  assert.equal(upload?.dataBase64, 'ZW5jb2RlZA==');
+});
 
 test('visual-search modules contain zero unsafe HTML DOM injection sinks', () => {
   for (const file of ['visual-search-boot.js', 'visual-search-model.js', 'visual-search-broker.js', 'visual-search.js']) {
@@ -969,22 +1026,34 @@ test('lens on Reddit media (separate toggle): searches with the picture, uploadi
   assert.equal(seed.fallbackImageUrl, 'https://preview.redd.it/clip-thumb.jpg?width=640&s=x', 'a video searches with its thumbnail');
 
   // On the Visual tab: not indexed → the thumbnail is uploaded as an image search instead of asking.
-  const uploads = [];
+  const uploads = [], stills = [];
   const vis = setupUi(t, {
     url: 'https://www.reddit.com/search/?type=media&rt_visual=1&rt_vpost=pics/abc123',
     sendImpl: async msg => {
       if (msg.action === 'resolve-post') return { ok: true, indexed: false };
+      if (msg.action === 'fetch-still') {
+        stills.push(msg.url);
+        return { ok: true, base64: 'eA==', mimeType: 'image/jpeg' };
+      }
       if (msg.action === 'upload-image') { uploads.push(msg); return { ok: false, error: 'stop here' }; }
       return { ok: true, items: [] };
     }
   });
   vis.W.sessionStorage.setItem('rt-visual-seed:pics/abc123', JSON.stringify(seed));
-  vis.controller.prepareImage = async () => ({ dataBase64: 'AAAA', mimeType: 'image/webp', previewUrl: 'blob:x' });
+  vis.W.fetch = async () => { throw new TypeError('Cross-origin read blocked'); };
+  vis.W.URL.revokeObjectURL = () => {};
+  vis.controller.prepareImage = async blob => {
+    assert.equal(blob.type, 'image/jpeg');
+    assert.equal(blob.size, 1);
+    return { dataBase64: 'AAAA', mimeType: 'image/webp', previewUrl: 'blob:x' };
+  };
   await vis.controller.ready;
   await flush();
   await flush();
   assert.equal(vis.D.querySelector('[data-rt-ui="visual-search"] .rt-community-state-title')?.textContent === 'This post is not in infini.wtf’s index yet', false, 'no extra step');
+  assert.deepEqual(stills, ['https://preview.redd.it/clip-thumb.jpg?width=640&s=x']);
   assert.equal(uploads.length, 1, 'the picture was searched');
+  assert.deepEqual({ ...uploads[0] }, { action: 'upload-image', dataBase64: 'AAAA', mimeType: 'image/webp' });
 
   on.controller.applySettings({ visualSearch: true, visualSearchMediaButton: false });
   assert.equal(on.D.querySelectorAll('[data-rt-ui="visual-media-lens"]').length, 0, 'turning it off removes them');

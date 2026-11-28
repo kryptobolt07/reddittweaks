@@ -477,49 +477,56 @@
     });
   }
 
-  function safeRedditImage(value) {
+  function safePostStill(value) {
     try {
       const url = new URL(String(value || '').replace(/&amp;/gi, '&'));
-      return url.protocol === 'https:' && !url.username && !url.password && !url.port && REDDIT_IMAGE_HOSTS.has(url.hostname.toLowerCase())
-        ? url.href : '';
-    } catch { return ''; }
+      if (url.protocol !== 'https:' || url.username || url.password || url.port) return null;
+      const youtube = url.hostname === 'i.ytimg.com' && /^\/vi\/[A-Za-z0-9_-]{11}\/hqdefault\.jpg$/.test(url.pathname);
+      return REDDIT_IMAGE_HOSTS.has(url.hostname) || youtube ? url : null;
+    } catch { return null; }
   }
 
-  async function uploadImage(message) {
-    let bytes = null;
-    let mimeType = 'image/webp';
-    let ext = 'webp';
+  async function fetchStill(message) {
+    const url = safePostStill(message.url);
+    const error = 'Couldn’t read this post’s picture. Save it and search with the file instead.';
+    if (!url) return fail(error, 'invalid-request');
+    if (!await hostAccess(url.origin + '/*')) {
+      return fail('Reddit Tweaks needs access to the post’s image host. Open the extension popup, turn Visual search off and on, and choose Allow.', 'permission-required');
+    }
 
-    if (typeof message.dataBase64 === 'string' && message.dataBase64) {
-      const mapped = ALLOWED_IMAGE_TYPES.get(String(message.mimeType || '').toLowerCase());
-      if (!mapped) return fail('Unsupported image format.', 'invalid-request');
-      mimeType = String(message.mimeType).toLowerCase() === 'image/jpg' ? 'image/jpeg' : String(message.mimeType).toLowerCase();
-      ext = mapped;
-      try { bytes = base64ToBytes(message.dataBase64); } catch { return fail('Invalid image data.', 'invalid-request'); }
-      if (!bytes || !bytes.byteLength) return fail('Image file is empty or too large (max 10 MB).', 'invalid-request');
-    } else if (message.redditImageUrl) {
-      const redditUrl = safeRedditImage(message.redditImageUrl);
-      if (!redditUrl) return fail('Couldn’t read this post’s picture. Save it and search with the file instead.', 'invalid-request');
+    return withSlot(async () => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
       try {
-        const res = await fetch(redditUrl, { credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error', signal: controller.signal });
-        if (!res.ok) return fail('Couldn’t read this post’s picture. Try again, or save it and search with the file.', 'reddit-image-error');
-        const ctype = String(res.headers?.get?.('Content-Type') || '').split(';', 1)[0].trim().toLowerCase();
-        if (ctype && ALLOWED_IMAGE_TYPES.has(ctype)) {
-          mimeType = ctype === 'image/jpg' ? 'image/jpeg' : ctype;
-          ext = ALLOWED_IMAGE_TYPES.get(ctype);
-        }
-        bytes = await readBoundedBytes(res, controller, MAX_IMAGE_BYTES);
-        if (!bytes || !bytes.byteLength) return fail('Post image exceeds the 10 MB visual search limit.', 'invalid-request');
+        const response = await fetch(url.href, {
+          credentials: 'omit', referrerPolicy: 'no-referrer', redirect: 'error', signal: controller.signal
+        });
+        if (!response.ok) return fail(error, 'reddit-image-error');
+        const type = String(response.headers.get('Content-Type') || '').split(';', 1)[0].trim().toLowerCase();
+        const mimeType = type === 'image/jpg' ? 'image/jpeg' : type;
+        if (!ALLOWED_IMAGE_TYPES.has(mimeType)) return fail(error, 'reddit-image-error');
+        const bytes = await readBoundedBytes(response, controller, MAX_IMAGE_BYTES);
+        if (!bytes?.byteLength) return fail('Post image is empty or exceeds the 10 MB visual search limit.', 'invalid-request');
+        return { ok: true, base64: bytesToBase64(bytes), mimeType };
       } catch {
-        return fail('Couldn’t read this post’s picture. Try again, or save it and search with the file.', 'reddit-image-error');
+        return fail(error, 'reddit-image-error');
       } finally {
         clearTimeout(timer);
       }
-    } else {
+    });
+  }
+
+  async function uploadImage(message) {
+    if (typeof message.dataBase64 !== 'string' || !message.dataBase64) {
       return fail('Provide an image file to search.', 'invalid-request');
     }
+    const type = String(message.mimeType || '').toLowerCase();
+    const ext = ALLOWED_IMAGE_TYPES.get(type);
+    if (!ext) return fail('Unsupported image format.', 'invalid-request');
+    const mimeType = type === 'image/jpg' ? 'image/jpeg' : type;
+    let bytes;
+    try { bytes = base64ToBytes(message.dataBase64); } catch { return fail('Invalid image data.', 'invalid-request'); }
+    if (!bytes?.byteLength) return fail('Image file is empty or too large (max 10 MB).', 'invalid-request');
 
     const hash = await sha256Hex(bytes);
     return withSlot(async () => {
@@ -625,32 +632,18 @@
     const runtime = api();
     if (!runtime?.downloads?.download) return fail('Downloads are unavailable.', 'unavailable');
     try {
-      await new Promise((resolve, reject) => {
-        let settled = false;
-        const done = (id, err) => {
-          if (settled) return;
-          settled = true;
-          if (err) reject(err);
-          else if (Number.isInteger(id) && id > 0) resolve(id);
-          else reject(Error('Download did not start.'));
-        };
-        const out = runtime.downloads.download({ url: safeUrl, filename, conflictAction: 'uniquify', saveAs: false }, id => {
-          const err = runtime.runtime?.lastError;
-          done(id, err ? Error(err.message || 'Download failed.') : null);
-        });
-        if (out && typeof out.then === 'function') out.then(id => done(id), err => done(null, err));
-        else if (out !== undefined) done(out);
-      });
+      const id = await runtime.downloads.download({ url: safeUrl, filename, conflictAction: 'uniquify', saveAs: false });
+      if (!Number.isInteger(id) || id <= 0) throw Error('Download did not start.');
       return { ok: true };
     } catch (error) {
       return fail(error?.message || 'Unable to download visual media.', 'download-error');
     }
   }
 
-  async function hostAccess() {
+  async function hostAccess(origin) {
     const perms = api()?.permissions;
     if (!perms?.contains) return true;
-    try { return await perms.contains({ origins: ['https://infini.wtf/*', 'https://video.infini.wtf/*'] }); }
+    try { return await perms.contains({ origins: [origin] }); }
     catch { return true; }
   }
 
@@ -664,9 +657,11 @@
       clearCache();
       return fail('Enable Visual search in Reddit Tweaks settings.', 'disabled');
     }
+    if (message?.action === 'fetch-still') return fetchStill(message);
+    const serviceOrigin = message?.action === 'fetch-video' ? 'https://video.infini.wtf/*' : 'https://infini.wtf/*';
     // Site access can be withheld after install (Chrome site access, Firefox optional host permissions).
-    if (message?.action !== 'download' && !await hostAccess()) {
-      return fail('Reddit Tweaks can’t reach infini.wtf. Open the extension popup, turn Visual search off and on, and choose Allow.', 'permission-required');
+    if (message?.action !== 'download' && !await hostAccess(serviceOrigin)) {
+      return fail('Reddit Tweaks needs access to infini.wtf. Open the extension popup, turn Visual search off and on, and choose Allow.', 'permission-required');
     }
     switch (message?.action) {
       case 'query': return runQuery(message);
